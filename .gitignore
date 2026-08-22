@@ -5,3 +5,5 @@ shots/
 *.local
 test-results/
 playwright-report/
+dist-singlefile/
+vite.singlefile.config.ts
