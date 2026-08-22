@@ -16,6 +16,12 @@ export interface QualitySettings {
   readonly radialSegments: number;
   /** 角色沿身体轴向的分段密度倍率。 */
   readonly lengthDetail: number;
+  /** 角色配件细节档：0 只留大件 / 1 常规 / 2 全套。 */
+  readonly accessory: 0 | 1 | 2;
+  /** 同屏最多画多少个士兵。 */
+  readonly soldierInstances: number;
+  /** 同屏最多画多少门大炮（单门约 6.6k 面，是场上最重的道具）。 */
+  readonly cannonInstances: number;
   /** 阴影贴图边长；0 = 关闭阴影。 */
   readonly shadowMap: number;
   /** 杂兵是否投影（精英和 Boss 永远投影）。 */
@@ -37,8 +43,11 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
     level: 'high',
     label: '高',
     enemyInstances: 320,
-    radialSegments: 14,
+    radialSegments: 12,
     lengthDetail: 1,
+    accessory: 2,
+    soldierInstances: 260,
+    cannonInstances: 32,
     shadowMap: 2048,
     crowdShadows: true,
     gtao: true,
@@ -51,8 +60,11 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
     level: 'medium',
     label: '中',
     enemyInstances: 220,
-    radialSegments: 10,
+    radialSegments: 9,
     lengthDetail: 0.7,
+    accessory: 1,
+    soldierInstances: 190,
+    cannonInstances: 20,
     shadowMap: 1024,
     crowdShadows: false,
     gtao: false,
@@ -64,9 +76,12 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
   low: {
     level: 'low',
     label: '低',
-    enemyInstances: 140,
-    radialSegments: 7,
-    lengthDetail: 0.5,
+    enemyInstances: 110,
+    radialSegments: 6,
+    lengthDetail: 0.4,
+    accessory: 0,
+    soldierInstances: 100,
+    cannonInstances: 12,
     shadowMap: 0,
     crowdShadows: false,
     gtao: false,

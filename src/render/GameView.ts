@@ -21,6 +21,8 @@ import { BlockMesh } from './hud3d/BlockMesh';
 import { GateWall } from './hud3d/GateWall';
 import { HealthBarBatch } from './hud3d/HealthBarBatch';
 import { CrowdBatch } from './units/CrowdRenderer';
+import { PRESET, industrial } from './mat/pbr';
+import { ensureSurf } from './mat/triplanar';
 import { createCrowdMaterial, type CrowdMaterialSet } from './units/CrowdMaterial';
 import {
   bossGeometry,
@@ -54,8 +56,8 @@ const CROWD_CAPACITY: Record<EnemyKind, number> = {
 /** Enemies.ts 里的倒地动画时长，用来把 dying 换算成 0..1 的翻倒进度。 */
 const DYING_TIME = 0.55;
 
-/** 大炮的渲染上限。 */
-const MAX_RENDERED_CANNONS = 48;
+/** 大炮的渲染上限。单门约 6.6k 三角形，32 门封顶约 21 万。 */
+const MAX_RENDERED_CANNONS = 32;
 
 export interface FloatRequest {
   text: string;
@@ -125,6 +127,7 @@ export class GameView {
     const q: BuildQuality = {
       radialSegments: this.r.quality.radialSegments,
       lengthDetail: this.r.quality.lengthDetail,
+      accessory: this.r.quality.accessory,
     };
     const geos: Record<EnemyKind, (q: BuildQuality) => THREE.BufferGeometry> = {
       walker: zombieGeometry,
@@ -164,17 +167,19 @@ export class GameView {
 
     this.cannons = new THREE.InstancedMesh(
       cannonGeometry(),
-      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.45 }),
+      industrial(PRESET.machinery()),
       MAX_RENDERED_CANNONS,
     );
     this.cannons.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.cannons.frustumCulled = false;
     this.cannons.count = 0;
+    this.cannons.castShadow = this.r.quality.shadowMap > 0;
+    this.cannons.receiveShadow = true;
     this.scene.add(this.cannons);
 
     this.shells = new THREE.InstancedMesh(
-      shellGeometry(),
-      new THREE.MeshStandardMaterial({ color: 0x23272e, emissive: new THREE.Color(0x1d0c00), roughness: 0.5 }),
+      ensureSurf(shellGeometry()),
+      industrial({ color: 0xffffff, roughness: 0.42, metalness: 0.55, wear: 0.3, grunge: 0.2, triScale: 3 }),
       64,
     );
     this.shells.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -202,8 +207,8 @@ export class GameView {
     this.scene.fog = new THREE.Fog(theme.fog, 90, 420);
 
     const rng = new Rng(0x1234 + world.level.id * 977);
-    root.add(createBridge(world.totalLength, rng));
-    root.add(createCity(world.totalLength, rng));
+    root.add(createBridge(world.totalLength, rng, q.envDetail));
+    root.add(createCity(world.totalLength, rng, q.envDetail));
 
     for (const g of world.gates) {
       const wall = new GateWall(g.z, g.left, g.right);
@@ -240,7 +245,7 @@ export class GameView {
    * 开发期：把镜头钉在某个目标近处，用来逐个检查资产。
    * null 表示恢复正常的追尾镜头。
    */
-  inspect: { target: 'squad' | 'boss' | 'enemy'; dist: number; height: number; yaw: number } | null = null;
+  inspect: { target: 'squad' | 'boss' | 'enemy' | 'cannon'; dist: number; height: number; yaw: number } | null = null;
 
   private applyInspect(world: World): boolean {
     const ins = this.inspect;
@@ -252,6 +257,9 @@ export class GameView {
       cx = world.boss.enemy.x;
       cy = world.boss.enemy.scale * 1.2;
       cz = world.boss.enemy.z;
+    } else if (ins.target === 'cannon') {
+      const c = world.squad.units.find((u) => u.alive && u.isCannon);
+      if (c) { cx = c.x; cy = 0.7; cz = c.z; }
     } else if (ins.target === 'enemy') {
       const e = world.enemies.list.find((x) => x.alive && !x.scripted);
       if (e) { cx = e.x; cy = e.scale * 0.9; cz = e.z; }
@@ -372,7 +380,7 @@ export class GameView {
     for (const u of squad.units) {
       if (!u.alive) continue;
       if (u.isCannon) {
-        if (cannonCount >= MAX_RENDERED_CANNONS) continue;
+        if (cannonCount >= this.r.quality.cannonInstances) continue;
         this.v.set(u.x, 0, u.z);
         this.q.setFromAxisAngle(this.axisY, 0);
         this.sc.set(1, 1, 1);
@@ -381,7 +389,7 @@ export class GameView {
         cannonCount++;
         continue;
       }
-      if (this.soldiers.used >= MAX_RENDERED_SOLDIERS) continue;
+      if (this.soldiers.used >= this.r.quality.soldierInstances) continue;
       // 前几排整齐，越往后越有点自然的错落
       const jitter = ((u.id * 2654435761) % 1000) / 1000 - 0.5;
       this.soldiers.add(

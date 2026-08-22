@@ -116,6 +116,24 @@ export const PRESET = {
     triScale: 0.9,
     detail: 0.2,
   }),
+  /**
+   * 机械件：大炮这类多材质拼装的道具。
+   * 基础色留白，颜色全部由几何体的顶点色给 —— 一个件上同时有涂装钢、
+   * 裸钢、橡胶、黄铜，靠一个材质的 color 是分不出来的。
+   */
+  machinery: (): IndustrialOptions => ({
+    color: 0xffffff,
+    roughness: 0.46,
+    metalness: 0.62,
+    wear: 0.34,
+    wearColor: 0xc4c9d2,
+    grunge: 0.34,
+    grungeColor: 0x241f1a,
+    scratch: 0.42,
+    triScale: 1.6,
+    detail: 0.28,
+    ao: 0.9,
+  }),
   /** 黄金 / 黄铜：装甲方块、金锭。 */
   gold: (color = 0xd9a326): IndustrialOptions => ({
     color,

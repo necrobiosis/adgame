@@ -53,8 +53,8 @@ export function plate(w: number, h: number, t: number, opts?: { corner?: number;
     bevelEnabled: bevel > 0,
     bevelThickness: bevel,
     bevelSize: bevel,
-    bevelSegments: 2,
-    curveSegments: 6,
+    bevelSegments: 1,
+    curveSegments: 3,
   });
   g.translate(0, 0, -(t - bevel * 2) / 2);
   return g;
@@ -110,14 +110,13 @@ export function iBeam(length: number, opts?: { height?: number; width?: number; 
 
 /** 六角螺栓：带倒角的六角头 + 一小段柱身。密集复用，面数刻意压得很低。 */
 export function hexBolt(r: number, h: number): THREE.BufferGeometry {
+  // 只做露在外面的六角头 + 顶面倒角。螺杆永远埋在板子里，不值得为它花三角形 ——
+  // 这个件会被成百上千地复用。
   const head = new THREE.CylinderGeometry(r, r * 0.96, h, 6, 1);
   head.translate(0, h / 2, 0);
-  // 顶面倒角，避免六角头是一块生硬的平板
   const cap = new THREE.CylinderGeometry(r * 0.72, r * 0.99, h * 0.22, 6, 1);
   cap.translate(0, h * 0.94, 0);
-  const shank = new THREE.CylinderGeometry(r * 0.55, r * 0.55, h * 0.7, 6, 1);
-  shank.translate(0, -h * 0.3, 0);
-  return merge([head, cap, shank]);
+  return merge([head, cap]);
 }
 
 /** 沿一圈排布螺栓。 */

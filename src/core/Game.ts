@@ -53,7 +53,7 @@ export class Game {
    * 不用干等 —— 也方便截图核对画面。
    */
   /** 开发期调试：把镜头钉到某个目标近处看资产细节。 */
-  inspect(target: 'squad' | 'boss' | 'enemy' | null, dist = 4, height = 1.2, yaw = 0.6): void {
+  inspect(target: 'squad' | 'boss' | 'enemy' | 'cannon' | null, dist = 4, height = 1.2, yaw = 0.6): void {
     this.view.inspect = target ? { target, dist, height, yaw } : null;
   }
 

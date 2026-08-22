@@ -4,6 +4,9 @@ import type { LaneChoice } from '../../config/levels';
 import { gateVisual } from '../../sim/Gates';
 import { LANE_SIGN, type Side } from '../../sim/lanes';
 import { canvasTexture } from '../env/materials';
+import { boltRing, chamferBox, iBeam, lathe, merge, paint, pipe, place, plate } from '../geom/hardSurface';
+import { bakeSurface, weldSmooth } from '../geom/deform';
+import { PRESET, industrial } from '../mat/pbr';
 
 const WALL_H = 5.4;
 const RUNWAY_LEN = 22;
@@ -29,13 +32,11 @@ export class GateWall {
     this.build(left, 'left');
     this.build(right, 'right');
 
-    // 中间的分隔柱，让"二选一"在视觉上没有歧义
-    const post = new THREE.Mesh(
-      new THREE.BoxGeometry(0.55, WALL_H + 1.4, 0.9),
-      new THREE.MeshStandardMaterial({ color: 0xe8eaee, roughness: 0.5, metalness: 0.25 }),
-    );
-    post.position.set(0, (WALL_H + 1.4) / 2, 0);
-    this.group.add(post);
+    // 承载发光面板的金属门架。没有它，那两片发光墙是凭空浮在路上的。
+    const frame = new THREE.Mesh(buildGateFrame(), industrial(PRESET.paintedSteel(0xb8bec8, 0.4)));
+    frame.castShadow = true;
+    frame.receiveShadow = true;
+    this.group.add(frame);
   }
 
   private build(lane: LaneChoice, side: Side): void {
@@ -91,7 +92,7 @@ export class GateWall {
         toneMapped: false,
       }),
     );
-    plate.position.set(cx, WALL_H + 1.1, -0.05);
+    plate.position.set(cx, WALL_H + 0.78, -0.05);
     plate.rotation.y = Math.PI;
     plate.renderOrder = 6;
     this.group.add(plate);
@@ -175,6 +176,64 @@ function makePlateTexture(title: string, hint: string, color: number, buff: bool
     ctx.fillStyle = badge;
     ctx.fillText(`前方：${hint}`, w / 2, 140);
   }, { wrap: THREE.ClampToEdgeWrapping });
+}
+
+/**
+ * 门架：两侧立柱 + 中央分隔柱 + 顶横梁 + 投影仪外壳 + 线缆。
+ * 结构件用工字钢和带倒角的板，和桥上的桁架是同一套语言。
+ */
+function buildGateFrame(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const add = (g: THREE.BufferGeometry, c: number) => parts.push(paint(g, c));
+  const H = WALL_H + 1.5;
+  const colX = ROAD_HALF + 0.55;
+
+  for (const sx of [-1, 0, 1]) {
+    const x = sx * colX;
+    const wide = sx === 0;
+    add(place(iBeam(H, wide
+      ? { height: 0.46, width: 0.4, web: 0.075, flange: 0.08 }
+      : { height: 0.56, width: 0.46, web: 0.085, flange: 0.09 },
+    ), { x, y: H / 2 }), 0xffffff);
+    // 柱脚：底板 + 螺栓圈
+    add(place(plate(0.9, 0.9, 0.09, { corner: 0.08 }), { x, y: 0.05, rx: Math.PI / 2 }), 0xdfe3e9);
+    add(place(boltRing(6, 0.32, 0.045, 0.05), { x, y: 0.1 }), 0x8b929b);
+    // 柱头
+    add(place(plate(0.8, 0.8, 0.08, { corner: 0.07 }), { x, y: H - 0.04, rx: Math.PI / 2 }), 0xdfe3e9);
+  }
+
+  // 顶横梁：抬到铭牌上方，截面收细
+  add(place(iBeam(colX * 2 + 0.6, { height: 0.26, width: 0.22, web: 0.045, flange: 0.05 }), { y: H + 0.72, rz: Math.PI / 2 }), 0xf2f4f7);
+  // 横梁下的斜撑，让门架不是两根光杆加一根横杠
+  for (const sx of [-1, 1]) {
+    add(place(chamferBox(0.14, 1.5, 0.1, 0.03), { x: sx * (colX - 0.55), y: H + 0.32, z: 0, rz: sx * 0.72 }), 0xe2e6ec);
+  }
+  // 走线：细管而不是一整条槽
+  for (const dz of [-0.16, 0.16]) {
+    add(place(pipe([
+      new THREE.Vector3(-colX, H + 0.86, dz), new THREE.Vector3(0, H + 0.79, dz), new THREE.Vector3(colX, H + 0.86, dz),
+    ], 0.035, 5), {}), 0x3a3e45);
+  }
+
+  // 投影仪外壳：每片面板上下各一个，把发光面"装"进硬件里
+  for (const sx of [-1, 1]) {
+    const cx = sx * (ROAD_HALF - 0.5) / 2 * 2 * 0.5;
+    for (const sy of [0, 1]) {
+      const y = sy === 0 ? 0.34 : WALL_H - 0.2;
+      add(place(lathe([
+        [0.0, 0], [0.16, 0.02], [0.19, 0.07], [0.19, 0.4], [0.15, 0.46], [0.0, 0.48],
+      ], 10), { x: cx, y, z: 0.26, rx: sy === 0 ? -Math.PI / 2 : Math.PI / 2 }), 0x4d545d);
+      add(place(chamferBox(0.5, 0.22, 0.3, 0.05), { x: cx, y: y + (sy === 0 ? -0.16 : 0.16), z: 0.26 }), 0x6f767f);
+    }
+    // 从柱子接到外壳的线缆
+    add(place(pipe([
+      new THREE.Vector3(sx * colX * 0.98, H + 0.42, -0.16),
+      new THREE.Vector3(cx + sx * 0.6, WALL_H + 0.5, 0.12),
+      new THREE.Vector3(cx, WALL_H + 0.05, 0.26),
+    ], 0.05, 5), {}), 0x2a2d33);
+  }
+
+  return bakeSurface(weldSmooth(merge(parts), 38), { gridSize: 26, rays: 10, steps: 4 });
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {

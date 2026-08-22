@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { lathe, merge, paint, pipe, place, plate, roundedBox, sweep, type SweepSection } from '../geom/hardSurface';
+import { chamferBox, lathe, merge, paint, pipe, place, plate, sweep, type SweepSection } from '../geom/hardSurface';
 import { bakeSurface, jitter, weldSmooth } from '../geom/deform';
 import { BONE, assignSkin, buildSkeleton, pivots, type Skeleton } from './skeleton';
 import { Rng } from '../../core/Rng';
@@ -21,6 +21,14 @@ export interface BuildQuality {
   radialSegments: number;
   /** 沿身体轴向的分段密度倍率。 */
   lengthDetail: number;
+  /**
+   * 配件细节档：0 = 只留大件，1 = 常规，2 = 全套。
+   *
+   * 身体本身的面数随 radialSegments 缩放，但护具、枪械、绑带这些小件是**固定
+   * 成本**，一个圆角盒动辄几百个三角形。不按档砍它们的话，低画质档根本降不下来 ——
+   * 实测低档角色仍有近三千面，配件占了七成。
+   */
+  accessory: 0 | 1 | 2;
 }
 
 export interface BodyPalette {
@@ -75,12 +83,18 @@ function limb(
   return sweep(sections, q.radialSegments, true);
 }
 
-/** 按质量档插值出更多中间截面，低档直接用原始控制点。 */
+/**
+ * 按质量档在控制截面之间插值。
+ *
+ * 刻意插得很保守：沿着一条笔直的肢体再加几圈截面，对剪影毫无帮助，纯粹是
+ * 白花三角形 —— 决定肢体轮廓的是**截面曲线本身**。所以最高档也只在每段之间
+ * 补一圈，用来软化肌肉起伏的转折。
+ */
 function densify(
   ctrl: readonly { t: number; w: number; h: number; round?: number }[],
   q: BuildQuality,
 ): { t: number; w: number; h: number; round?: number }[] {
-  const extra = Math.max(0, Math.round((ctrl.length - 1) * (q.lengthDetail - 0.5) * 2));
+  const extra = q.lengthDetail >= 0.95 ? 1 : 0;
   if (extra <= 0) return [...ctrl];
   const out: { t: number; w: number; h: number; round?: number }[] = [];
   for (let i = 0; i < ctrl.length - 1; i++) {
@@ -112,6 +126,10 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
   const add = (geo: THREE.BufferGeometry, color: number, bones: number[]) => {
     parts.push({ geo: paint(geo, color), bones });
   };
+  /** 配件用的圆角盒：分段数随配件档走。 */
+  const accBox = (w: number, h: number, d: number, r: number) => chamferBox(w, h, d, r);
+  /** 次要配件在低档直接不生成。 */
+  const minor = q.accessory >= 1;
 
   // ── 躯干 ────────────────────────────────────────────────────
   // 骨盆 → 胸腔 → 颈根。胸腔最宽，腰部收进去，颈根再收 —— 这条曲线是
@@ -152,7 +170,7 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
   const faceZ = neck.z + headLen * 0.22;
 
   // 口鼻：往前突出一小块，侧影才不是一颗光球
-  add(place(roundedBox(H * 0.042, H * 0.032, H * 0.03, H * 0.012, 2), {
+  add(place(accBox(H * 0.042, H * 0.032, H * 0.03, H * 0.012), {
     x: 0, y: mouthY, z: faceZ,
   }), p.skin, [BONE.HEAD]);
   void chinY;
@@ -200,7 +218,7 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
     add(limb(shoulder, elbow, armCtrl.map((c) => ({ ...c, w: c.w * asym, h: c.h * asym })), q), p.cloth, [armB, BONE.CHEST]);
     add(limb(elbow, wrist, foreCtrl, q), spec.decayed ? p.skin : p.cloth, [foreB, armB]);
     // 手
-    add(place(roundedBox(H * 0.032 * B, H * 0.042 * B, H * 0.028 * B, H * 0.011, 2), {
+    add(place(accBox(H * 0.032 * B, H * 0.042 * B, H * 0.028 * B, H * 0.011), {
       x: wrist.x, y: wrist.y - H * 0.018, z: wrist.z,
     }), p.skin, [foreB]);
 
@@ -216,7 +234,7 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
     }
 
     if (spec.claws) {
-      for (let c = 0; c < 3; c++) {
+      for (let c = 0; c < (q.accessory >= 2 ? 3 : 2); c++) {
         const cx = wrist.x + (c - 1) * H * 0.018 * B;
         add(place(lathe([[H * 0.009 * B, 0], [H * 0.006 * B, H * 0.03], [0.0005, H * 0.058]], 5), {
           x: cx, y: wrist.y - H * 0.05, z: wrist.z + H * 0.012, rx: 0.5,
@@ -230,12 +248,12 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
     add(limb(hipJ, knee, thighCtrl, q), p.dark, [thighB, BONE.PELVIS]);
     add(limb(knee, ankle, shinCtrl, q), p.dark, [shinB, thighB]);
     // 靴子：带倒角的方块 + 一点鞋头的圆润
-    add(place(roundedBox(H * 0.046 * B, H * 0.038, H * 0.085, H * 0.014, 2), {
+    add(place(accBox(H * 0.046 * B, H * 0.038, H * 0.085, H * 0.014), {
       x: ankle.x, y: H * 0.02, z: ankle.z + H * 0.016,
     }), 0x24262b, [shinB]);
-    if (spec.helmet) {
+    if (spec.helmet && minor) {
       // 护膝
-      add(place(roundedBox(H * 0.042 * B, H * 0.044, H * 0.03, H * 0.012, 2), {
+      add(place(accBox(H * 0.042 * B, H * 0.044, H * 0.03, H * 0.012), {
         x: knee.x, y: knee.y + H * 0.008, z: knee.z + H * 0.028 * B,
       }), p.dark, [thighB, shinB]);
     }
@@ -259,17 +277,21 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
       x: 0, y: browY + headLen * 0.04, z: faceZ + headLen * 0.09, rx: -0.5,
     }), p.accent, [BONE.HEAD]);
     // 耳罩
-    for (const sx of [-1, 1]) {
-      add(place(roundedBox(H * 0.013, H * 0.04, H * 0.036, H * 0.005, 2), {
-        x: sx * H * 0.05, y: eyeY, z: neck.z,
-      }), p.dark, [BONE.HEAD]);
+    if (minor) {
+      for (const sx of [-1, 1]) {
+        add(place(accBox(H * 0.013, H * 0.04, H * 0.036, H * 0.005), {
+          x: sx * H * 0.05, y: eyeY, z: neck.z,
+        }), p.dark, [BONE.HEAD]);
+      }
     }
     // 夜视仪基座 —— 剪影上的一个识别点
-    add(place(roundedBox(H * 0.024, H * 0.018, H * 0.016, H * 0.004, 1), {
-      x: 0, y: browY + headLen * 0.16, z: faceZ + headLen * 0.06,
-    }), p.dark, [BONE.HEAD]);
+    if (minor) {
+      add(place(chamferBox(H * 0.024, H * 0.018, H * 0.016, H * 0.004), {
+        x: 0, y: browY + headLen * 0.16, z: faceZ + headLen * 0.06,
+      }), p.dark, [BONE.HEAD]);
+    }
     // 护目镜：一条横过脸的暗带，脸立刻有了焦点
-    add(place(roundedBox(H * 0.084, H * 0.02, H * 0.018, H * 0.007, 2), {
+    add(place(accBox(H * 0.084, H * 0.02, H * 0.018, H * 0.007), {
       x: 0, y: eyeY, z: faceZ - headLen * 0.02,
     }), 0x14171d, [BONE.HEAD]);
     // 下巴带
@@ -283,23 +305,23 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
 
   if (spec.backpack) {
     const bz = chest.head.z - H * 0.075 * B;
-    add(place(roundedBox(H * 0.13 * B, H * 0.15, H * 0.07, H * 0.022, 3), {
+    add(place(accBox(H * 0.13 * B, H * 0.15, H * 0.07, H * 0.022), {
       x: 0, y: chest.head.y + H * 0.05, z: bz,
     }), p.accent, [BONE.CHEST]);
     // 卷起来的睡袋 + 背带
-    add(place(lathe([[H * 0.026, 0], [H * 0.03, H * 0.02], [H * 0.03, H * 0.1], [H * 0.026, H * 0.12]], 8), {
+    if (minor) add(place(lathe([[H * 0.026, 0], [H * 0.03, H * 0.02], [H * 0.03, H * 0.1], [H * 0.026, H * 0.12]], 8), {
       x: 0, y: chest.head.y + H * 0.055, z: bz - H * 0.05, rz: Math.PI / 2,
     }), p.dark, [BONE.CHEST]);
-    for (const sx of [-1, 1]) {
+    if (minor) for (const sx of [-1, 1]) {
       add(place(pipe([
         new THREE.Vector3(sx * H * 0.05, chest.head.y + H * 0.11, bz + H * 0.03),
         new THREE.Vector3(sx * H * 0.06, chest.head.y + H * 0.06, chest.head.z + H * 0.05),
         new THREE.Vector3(sx * H * 0.045, chest.head.y - H * 0.02, chest.head.z + H * 0.05),
       ], H * 0.008, 5), {}), p.dark, [BONE.CHEST]);
     }
-    // 胸挂：三个弹匣包并排，明显凸出于胸甲之外
-    for (let i = 0; i < 3; i++) {
-      add(place(roundedBox(H * 0.032 * B, H * 0.05, H * 0.026, H * 0.008, 2), {
+    // 胸挂：弹匣包，明显凸出于胸甲之外
+    for (let i = 0; i < (q.accessory >= 2 ? 3 : 1); i++) {
+      add(place(accBox(H * 0.032 * B, H * 0.05, H * 0.026, H * 0.008), {
         x: (i - 1) * H * 0.036 * B,
         y: chest.head.y + H * 0.022,
         z: chest.head.z + H * 0.062 * B,
@@ -319,18 +341,18 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
     const gy = wrist.y - H * 0.01;
     const gz = wrist.z + H * 0.02;
     // 机匣
-    add(place(roundedBox(H * 0.028, H * 0.045, H * 0.16, H * 0.008, 2), { x: gx, y: gy, z: gz + H * 0.03 }), 0x2b2f36, [BONE.FORE_R]);
+    add(place(accBox(H * 0.028, H * 0.045, H * 0.16, H * 0.008), { x: gx, y: gy, z: gz + H * 0.03 }), 0x2b2f36, [BONE.FORE_R]);
     // 枪管 + 消焰器（车削件，有明确的口径变化）
     add(place(lathe([
       [H * 0.011, 0], [H * 0.011, H * 0.11], [H * 0.008, H * 0.115],
       [H * 0.008, H * 0.17], [H * 0.014, H * 0.175], [H * 0.013, H * 0.2], [0.0005, H * 0.202],
     ], 8), { x: gx, y: gy + H * 0.012, z: gz + H * 0.11, rx: Math.PI / 2 }), 0x3a4049, [BONE.FORE_R]);
     // 弹匣
-    add(place(roundedBox(H * 0.016, H * 0.07, H * 0.03, H * 0.006, 1), { x: gx, y: gy - H * 0.05, z: gz + H * 0.01, rx: 0.22 }), 0x2b2f36, [BONE.FORE_R]);
+    add(place(chamferBox(H * 0.016, H * 0.07, H * 0.03, H * 0.006), { x: gx, y: gy - H * 0.05, z: gz + H * 0.01, rx: 0.22 }), 0x2b2f36, [BONE.FORE_R]);
     // 枪托
-    add(place(roundedBox(H * 0.024, H * 0.05, H * 0.09, H * 0.012, 2), { x: gx, y: gy - H * 0.004, z: gz - H * 0.075 }), 0x353a42, [BONE.FORE_R]);
+    add(place(accBox(H * 0.024, H * 0.05, H * 0.09, H * 0.012), { x: gx, y: gy - H * 0.004, z: gz - H * 0.075 }), 0x353a42, [BONE.FORE_R]);
     // 瞄具
-    add(place(roundedBox(H * 0.014, H * 0.018, H * 0.05, H * 0.005, 1), { x: gx, y: gy + H * 0.032, z: gz + H * 0.02 }), 0x22262c, [BONE.FORE_R]);
+    if (minor) add(place(chamferBox(H * 0.014, H * 0.018, H * 0.05, H * 0.005), { x: gx, y: gy + H * 0.032, z: gz + H * 0.02 }), 0x22262c, [BONE.FORE_R]);
   }
 
   if (spec.horns) {
@@ -344,7 +366,7 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
     }
   }
 
-  if (spec.spikes) {
+  if (spec.spikes && minor) {
     // 背刺：大小不一、间距不均，刻意不做成整齐的一排
     const n = 4;
     for (let i = 0; i < n; i++) {
@@ -361,7 +383,7 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
     }
   }
 
-  if (spec.decayed) {
+  if (spec.decayed && minor) {
     // 外露的肋骨 —— 只在一侧，制造不对称
     const side = rng.next() < 0.5 ? -1 : 1;
     for (let i = 0; i < 3; i++) {
