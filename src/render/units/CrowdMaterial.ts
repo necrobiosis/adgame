@@ -204,8 +204,11 @@ export function createCrowdMaterial(opts: CrowdMaterialOptions = {}): CrowdMater
         /* glsl */ `
         #include <emissivemap_fragment>
         {
-          // 只在磨损/凸起集中的棱线上发光：vSurf.y 越接近 1 越是棱角
-          float crack = pow(clamp(vSurf.y, 0.0, 1.0), 2.4);
+          // 只在磨损/凸起集中的棱线上发光：vSurf.y 越接近 1 越是棱角。
+          // 低多边形模型的每条棱都带一点凸度，指数太低会让"发光棱线"变成
+          // "整片发光"——这里的指数要能把中等凸度的大片平面压到几乎不发光，
+          // 只留最尖锐的角、爪、盔缝真正亮起来。
+          float crack = pow(clamp(vSurf.y, 0.0, 1.0), 6.0);
           float pulse = 0.65 + 0.35 * sin(uTime * 2.4 + vSurf.x * 6.0);
           totalEmissiveRadiance += uCrackColor * crack * uCrackStrength * pulse;
         }

@@ -144,8 +144,12 @@ export const ENEMY_STATS: Record<EnemyKind, EnemyStats> = {
   runner:   { kind: 'runner',   label: '疾行者', hp: 20,   speed: 6.6,  damage: 6,  scale: 0.95, gold: 2,   tint: 0xc6b489, showHealthBar: false, sweep: 1, scaleExp: 1.0 },
   screamer: { kind: 'screamer', label: '嚎叫者', hp: 260,  speed: 3.6,  damage: 10, scale: 1.25,  gold: 8,   tint: 0xc46a86, showHealthBar: true,  sweep: 1, scaleExp: 0.8 },
   brute:    { kind: 'brute',    label: '蛮兽',   hp: 1500, speed: 2.7,  damage: 30, scale: 1.6,  gold: 30,  tint: 0x8f5a4a, showHealthBar: true,  sweep: 3, scaleExp: 0.55 },
-  titan:    { kind: 'titan',    label: '泰坦',   hp: 5200, speed: 2.2,  damage: 52, scale: 2.1,  gold: 70,  tint: 0xc03a2c, showHealthBar: true,  sweep: 5, scaleExp: 0.45 },
-  boss:     { kind: 'boss',     label: '深渊领主', hp: 2700, speed: 2.6, damage: 68, scale: 4.4, gold: 400, tint: 0xd1372a, showHealthBar: true,  sweep: 8, scaleExp: 0 },
+  // titan/boss 的 tint 曾经是"整只涂成红橙色"的旧设计遗留值。palette 已经改成
+  // 炭黑甲壳 + 骨白角爪 + 熔纹发光的分层配色，tint 是在几何体自带颜色之上再乘
+  // 一层——继续用那个饱和红橙会把新调色板重新糊成一片红，所以改成接近白色，
+  // 让 palette 本身的颜色如实显示。
+  titan:    { kind: 'titan',    label: '泰坦',   hp: 5200, speed: 2.2,  damage: 52, scale: 2.1,  gold: 70,  tint: 0xf0ece4, showHealthBar: true,  sweep: 5, scaleExp: 0.45 },
+  boss:     { kind: 'boss',     label: '深渊领主', hp: 2700, speed: 2.6, damage: 68, scale: 4.4, gold: 400, tint: 0xf5f0e8, showHealthBar: true,  sweep: 8, scaleExp: 0 },
 };
 
 /** 嚎叫者光环：半径内的僵尸速度与伤害倍率。 */

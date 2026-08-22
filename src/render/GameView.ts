@@ -165,13 +165,13 @@ export class GameView {
         ? createCrowdMaterial({
             emissive: 0x0f0301, roughness: 0.62, metalness: 0.12,
             wearColor: 0x241008, wear: 0.14, grungeColor: 0x0a0503, grunge: 0.22, ao: 0.75,
-            crackGlow: true, crackColor: 0xff5a1a, crackStrength: 2.1,
+            crackGlow: true, crackColor: 0xff5a1a, crackStrength: 3.2,
           })
         : kind === 'titan'
           ? createCrowdMaterial({
               emissive: 0x080201, roughness: 0.7, metalness: 0.08,
               wearColor: 0x2a1710, wear: 0.12, grungeColor: 0x110907, grunge: 0.2, ao: 0.75,
-              crackGlow: true, crackColor: 0xe8481f, crackStrength: 1.4,
+              crackGlow: true, crackColor: 0xe8481f, crackStrength: 2.4,
             })
           : createCrowdMaterial();
       set.setPivots(geometryPivots(geo));
