@@ -273,6 +273,7 @@ export class Game {
     this.playAudio(events, world);
     this.view.update(world, dt, events);
     this.emitFloats();
+    this.emitSquadBadge();
     this.hud.update(world);
 
     if (world.phase !== 'running' && !this.pendingResult) {
@@ -316,5 +317,22 @@ export class Game {
       if (!this.projOut.visible) continue;
       this.floats.spawn(f.text, f.color, this.projOut.x, this.projOut.y, f.big ?? false);
     }
+  }
+
+  /** 把 GameView 算出的方阵溢出总数标签投影到屏幕上，交给 HUD 常驻显示。 */
+  private emitSquadBadge(): void {
+    const overflow = this.view.squadOverflow;
+    if (!overflow) {
+      this.hud.updateSquadBadge(null);
+      return;
+    }
+    this.projVec.set(overflow.x, overflow.y, overflow.z);
+    this.renderer.project(this.projVec, this.projOut);
+    this.hud.updateSquadBadge({
+      x: this.projOut.x,
+      y: this.projOut.y,
+      visible: this.projOut.visible,
+      total: overflow.total,
+    });
   }
 }

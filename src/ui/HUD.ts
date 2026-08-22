@@ -21,6 +21,7 @@ export class HUD {
   private readonly bossName: HTMLElement;
   private readonly bossHp: HTMLElement;
   private readonly bossFill: HTMLElement;
+  private readonly squadBadge: HTMLElement;
 
   constructor(parent: HTMLElement) {
     this.root = h(`
@@ -38,6 +39,7 @@ export class HUD {
           <div class="hp">0</div>
           <div class="track"><div class="fill" style="width:100%"></div></div>
         </div>
+        <div class="squad-badge">× 0</div>
         <div class="hud-bottom">
           <div class="progress-label"><span class="lname">第一关</span><span class="lpct">0%</span></div>
           <div class="progress"><div class="fill" style="width:0%"></div></div>
@@ -59,6 +61,23 @@ export class HUD {
     this.bossName = q('.boss-bar .name');
     this.bossHp = q('.boss-bar .hp');
     this.bossFill = q('.boss-bar .fill');
+    this.squadBadge = q('.squad-badge');
+  }
+
+  /**
+   * 方阵人数超过视觉呈现上限时，在渲染出来的最后一排后方挂一个常驻的
+   * 总数标签（"露出来的方阵 + 一个总数"，而不是超出的人数凭空消失）。
+   * 传 null 隐藏。
+   */
+  updateSquadBadge(pos: { x: number; y: number; visible: boolean; total: number } | null): void {
+    if (!pos || !pos.visible) {
+      this.squadBadge.classList.remove('on');
+      return;
+    }
+    this.squadBadge.classList.add('on');
+    this.squadBadge.textContent = `× ${pos.total}`;
+    this.squadBadge.style.left = `${pos.x}px`;
+    this.squadBadge.style.top = `${pos.y}px`;
   }
 
   setVisible(on: boolean): void {

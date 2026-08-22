@@ -3,11 +3,12 @@ import {
   ENEMY_STATS,
   MAX_RENDERED_SOLDIERS,
   ROAD_HALF,
+  SLOT_SPACING_Z,
   type EnemyKind,
 } from '../config/balance';
 import { Rng } from '../core/Rng';
 import type { World } from '../sim/World';
-import type { Enemy, SimEvent } from '../sim/types';
+import type { Enemy, SimEvent, Unit } from '../sim/types';
 import { LANE_SIGN } from '../sim/lanes';
 import { ChaseCamera, Renderer } from './Renderer';
 import { createCity } from './env/City';
@@ -99,6 +100,13 @@ export class GameView {
   private soldiers!: CrowdBatch;
   /** 每帧重建的"最近 N 个敌人"缓冲。 */
   private readonly visible: Enemy[] = [];
+  /** syncSquad() 每帧重建的候选士兵缓冲，避免每帧新分配数组。 */
+  private readonly soldierScratch: Unit[] = [];
+  /**
+   * 方阵人数超过视觉呈现上限时，供 Game/HUD 读取的溢出信息——
+   * 世界坐标里"该在哪显示总数标签"的一个锚点，null 表示不需要显示。
+   */
+  squadOverflow: { total: number; shown: number; x: number; y: number; z: number } | null = null;
   private cannons!: THREE.InstancedMesh;
   private shells!: THREE.InstancedMesh;
   private readonly bars = new HealthBarBatch(64);
@@ -163,15 +171,15 @@ export class GameView {
       // emissive 脉动作为唯一的亮色来源。
       const set = kind === 'boss'
         ? createCrowdMaterial({
-            emissive: 0x0f0301, roughness: 0.62, metalness: 0.12,
+            emissive: 0x180502, roughness: 0.62, metalness: 0.12,
             wearColor: 0x241008, wear: 0.14, grungeColor: 0x0a0503, grunge: 0.22, ao: 0.75,
-            crackGlow: true, crackColor: 0xff5a1a, crackStrength: 3.2,
+            crackGlow: true, crackColor: 0xff5a1a, crackStrength: 4.5,
           })
         : kind === 'titan'
           ? createCrowdMaterial({
-              emissive: 0x080201, roughness: 0.7, metalness: 0.08,
+              emissive: 0x0d0301, roughness: 0.7, metalness: 0.08,
               wearColor: 0x2a1710, wear: 0.12, grungeColor: 0x110907, grunge: 0.2, ao: 0.75,
-              crackGlow: true, crackColor: 0xe8481f, crackStrength: 2.4,
+              crackGlow: true, crackColor: 0xe8481f, crackStrength: 3.4,
             })
           : createCrowdMaterial();
       set.setPivots(geometryPivots(geo));
@@ -438,19 +446,37 @@ export class GameView {
     // 有敌人逼近时切成射击姿态
     const threat = world.enemies.list.some((e) => e.alive && e.z - squad.z < 30);
 
+    // 大炮走独立的上限计数，和步兵分开
     for (const u of squad.units) {
-      if (!u.alive) continue;
-      if (u.isCannon) {
-        if (cannonCount >= this.r.quality.cannonInstances) continue;
-        this.v.set(u.x, 0, u.z);
-        this.q.setFromAxisAngle(this.axisY, 0);
-        this.sc.set(1, 1, 1);
-        this.m.compose(this.v, this.q, this.sc);
-        this.cannons.setMatrixAt(cannonCount, this.m);
-        cannonCount++;
-        continue;
-      }
-      if (this.soldiers.used >= this.r.quality.soldierInstances) continue;
+      if (!u.alive || !u.isCannon) continue;
+      if (cannonCount >= this.r.quality.cannonInstances) continue;
+      this.v.set(u.x, 0, u.z);
+      this.q.setFromAxisAngle(this.axisY, 0);
+      this.sc.set(1, 1, 1);
+      this.m.compose(this.v, this.q, this.sc);
+      this.cannons.setMatrixAt(cannonCount, this.m);
+      cannonCount++;
+    }
+    this.cannons.count = cannonCount;
+    if (this.cannons.count > 0) this.cannons.instanceMatrix.needsUpdate = true;
+
+    // 步兵：数量一多，18 米宽的桥根本摆不下，视觉呈现上限比性能上限更保守。
+    // 超出的不是随便扔掉——优先保留 row 最小的最前排（前排本来就是主要
+    // 火力，后排还有火力衰减，视觉上也最合理），超出的部分改用头顶的
+    // 总数标签表示（见 squadOverflow，由 Game/HUD 消费）。
+    const scratch = this.soldierScratch;
+    scratch.length = 0;
+    for (const u of squad.units) {
+      if (u.alive && !u.isCannon) scratch.push(u);
+    }
+    const totalSoldiers = scratch.length;
+    const cap = Math.min(this.r.quality.soldierInstances, this.r.quality.soldierVisualCap);
+    if (totalSoldiers > cap) {
+      scratch.sort((a, b) => a.row - b.row);
+      scratch.length = cap;
+    }
+
+    for (const u of scratch) {
       // 前几排整齐，越往后越有点自然的错落
       const posJitter = ((u.id * 2654435761) % 1000) / 1000 - 0.5;
       this.soldiers.add(
@@ -466,8 +492,22 @@ export class GameView {
       );
     }
     this.soldiers.end();
-    this.cannons.count = cannonCount;
-    if (this.cannons.count > 0) this.cannons.instanceMatrix.needsUpdate = true;
+
+    const shown = scratch.length;
+    if (totalSoldiers > shown) {
+      // 标签挂在"渲染出来的那块方阵"正后方、头顶高度——紧贴着看得见的
+      // 最后一排，读起来像是"后面还有一串延伸出画面的队伍"
+      const shownRows = Math.max(1, Math.ceil(shown / Math.max(1, squad.cols)));
+      this.squadOverflow = {
+        total: totalSoldiers,
+        shown,
+        x: squad.x,
+        y: 2.3,
+        z: squad.z - shownRows * SLOT_SPACING_Z,
+      };
+    } else {
+      this.squadOverflow = null;
+    }
   }
 
   private syncShells(world: World): void {
