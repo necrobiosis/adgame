@@ -156,10 +156,23 @@ export class GameView {
       const geo = geos[kind](q);
       // Boss/泰坦身上叠一层熔纹自发光——复用已经烘进顶点的磨损数据，让炭黑的
       // 甲壳在棱线处渗出橙红熔光，而不是靠底色本身撑"看起来很凶"
+      // 通用材质默认的磨损/脏污颜色是偏暖的浅米色（给普通杂兵用的"露出底色"效果）。
+      // Boss/泰坦的底色已经压到近黑，如果不覆盖这两个颜色，默认的浅色磨损会在
+      // 大片凸起区域把整个身体洗成一片暖橙——盖过了调色板本身的对比，"发光裂纹"
+      // 也会被这片底噪淹没。这里把磨损/脏污都摁进深色，只留 crackGlow 的
+      // emissive 脉动作为唯一的亮色来源。
       const set = kind === 'boss'
-        ? createCrowdMaterial({ emissive: 0x1a0402, roughness: 0.6, metalness: 0.15, crackGlow: true, crackColor: 0xff5a1a, crackStrength: 1.7 })
+        ? createCrowdMaterial({
+            emissive: 0x0f0301, roughness: 0.62, metalness: 0.12,
+            wearColor: 0x241008, wear: 0.14, grungeColor: 0x0a0503, grunge: 0.22, ao: 0.75,
+            crackGlow: true, crackColor: 0xff5a1a, crackStrength: 2.1,
+          })
         : kind === 'titan'
-          ? createCrowdMaterial({ emissive: 0x0d0201, roughness: 0.68, metalness: 0.1, crackGlow: true, crackColor: 0xe8481f, crackStrength: 1.1 })
+          ? createCrowdMaterial({
+              emissive: 0x080201, roughness: 0.7, metalness: 0.08,
+              wearColor: 0x2a1710, wear: 0.12, grungeColor: 0x110907, grunge: 0.2, ao: 0.75,
+              crackGlow: true, crackColor: 0xe8481f, crackStrength: 1.4,
+            })
           : createCrowdMaterial();
       set.setPivots(geometryPivots(geo));
       this.matSets.push(set);
