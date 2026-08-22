@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { ROAD_HALF } from '../../config/balance';
 import { canvasTexture, instancedFrom, trs } from './materials';
+import { PRESET, industrial } from '../mat/pbr';
+import { ensureSurf } from '../mat/triplanar';
 import type { Rng } from '../../core/Rng';
 
 /**
@@ -35,8 +37,8 @@ export function createBridge(length: number, rng: Rng): THREE.Group {
   }, { repeat: [1, Math.round(L / 16)] });
 
   const road = new THREE.Mesh(
-    new THREE.BoxGeometry(ROAD_HALF * 2, 0.7, L),
-    new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.94, metalness: 0.02 }),
+    ensureSurf(new THREE.BoxGeometry(ROAD_HALF * 2, 0.7, L)),
+    industrial({ ...PRESET.asphalt(), map: roadTex }),
   );
   road.position.set(0, -0.35, z0 + L / 2);
   road.receiveShadow = true;
@@ -44,16 +46,16 @@ export function createBridge(length: number, rng: Rng): THREE.Group {
 
   // 桥面底板（从下面看的厚度）
   const deck = new THREE.Mesh(
-    new THREE.BoxGeometry(ROAD_HALF * 2 + 2.6, 1.1, L),
-    new THREE.MeshStandardMaterial({ color: 0x8d8f94, roughness: 0.9 }),
+    ensureSurf(new THREE.BoxGeometry(ROAD_HALF * 2 + 2.6, 1.1, L)),
+    industrial(PRESET.concrete(0x8d8f94)),
   );
   deck.position.set(0, -1.2, z0 + L / 2);
   g.add(deck);
 
   // ── 混凝土护栏 ─────────────────────────────────────────────
-  const barrierMat = new THREE.MeshStandardMaterial({ color: 0xc8c6bd, roughness: 0.88 });
+  const barrierMat = industrial(PRESET.concrete(0xc8c6bd));
   for (const sx of [-1, 1]) {
-    const b = new THREE.Mesh(new THREE.BoxGeometry(0.75, 1.25, L), barrierMat);
+    const b = new THREE.Mesh(ensureSurf(new THREE.BoxGeometry(0.75, 1.25, L)), barrierMat);
     b.position.set(sx * (ROAD_HALF + 0.3), 0.62, z0 + L / 2);
     b.castShadow = true;
     b.receiveShadow = true;
@@ -61,9 +63,9 @@ export function createBridge(length: number, rng: Rng): THREE.Group {
   }
 
   // ── 橙色钢桁架 ─────────────────────────────────────────────
-  const trussMat = new THREE.MeshStandardMaterial({ color: 0xd9622b, roughness: 0.6, metalness: 0.35 });
-  const postGeo = new THREE.BoxGeometry(0.34, 1, 0.34);
-  const braceGeo = new THREE.BoxGeometry(0.24, 1, 0.24);
+  const trussMat = industrial(PRESET.paintedSteel(0xd9622b, 0.45));
+  const postGeo = ensureSurf(new THREE.BoxGeometry(0.34, 1, 0.34));
+  const braceGeo = ensureSurf(new THREE.BoxGeometry(0.24, 1, 0.24));
   const posts: THREE.Matrix4[] = [];
   const braces: THREE.Matrix4[] = [];
   const step = 5.5;
@@ -87,8 +89,8 @@ export function createBridge(length: number, rng: Rng): THREE.Group {
   g.add(instancedFrom(braceGeo, trussMat, braces));
 
   // ── 桥墩 ───────────────────────────────────────────────────
-  const pierMat = new THREE.MeshStandardMaterial({ color: 0x9a9c9f, roughness: 0.92 });
-  const pierGeo = new THREE.BoxGeometry(3.2, 1, 3.2);
+  const pierMat = industrial(PRESET.concrete(0x9a9c9f));
+  const pierGeo = ensureSurf(new THREE.BoxGeometry(3.2, 1, 3.2));
   const piers: THREE.Matrix4[] = [];
   const beams: THREE.Matrix4[] = [];
   for (let z = z0; z < z0 + L; z += 46) {
@@ -99,12 +101,12 @@ export function createBridge(length: number, rng: Rng): THREE.Group {
     beams.push(trs(0, -2.6, z, 5.4, 1.0, 1.2));
   }
   g.add(instancedFrom(pierGeo, pierMat, piers));
-  g.add(instancedFrom(new THREE.BoxGeometry(3.2, 1, 3.2), pierMat, beams));
+  g.add(instancedFrom(ensureSurf(new THREE.BoxGeometry(3.2, 1, 3.2)), pierMat, beams));
 
   // 桥面纵梁
   const girder = new THREE.Mesh(
-    new THREE.BoxGeometry(1.0, 1.5, L),
-    new THREE.MeshStandardMaterial({ color: 0x7e8186, roughness: 0.85, metalness: 0.2 }),
+    ensureSurf(new THREE.BoxGeometry(1.0, 1.5, L)),
+    industrial(PRESET.bareSteel(0x7e8186)),
   );
   for (const sx of [-1, 1]) {
     const gg = girder.clone();

@@ -12,7 +12,7 @@ import { LANE_SIGN } from '../sim/lanes';
 import { ChaseCamera, Renderer } from './Renderer';
 import { createCity } from './env/City';
 import { createBridge } from './env/Bridge';
-import { CRIMSON, DAY, createLights, createSky, type SkyTheme } from './env/Sky';
+import { CRIMSON, DAY, createLights, createSky, createSkyEnvironment, type SceneLights, type SkyTheme } from './env/Sky';
 import { GoldBurst } from './fx/GoldBurst';
 import { Particles } from './fx/Particles';
 import { TelegraphLane, TelegraphRing } from './fx/Telegraph';
@@ -82,6 +82,7 @@ export class GameView {
 
   /** 每关重建的静态场景。 */
   private levelRoot = new THREE.Group();
+  private lights: SceneLights | null = null;
   private gateWalls: { z: number; wall: GateWall; id: number }[] = [];
   private blockMeshes: BlockMesh[] = [];
   private time = 0;
@@ -92,6 +93,8 @@ export class GameView {
   private readonly sc = new THREE.Vector3(1, 1, 1);
   private readonly axisY = new THREE.Vector3(0, 1, 0);
   private readonly rng = new Rng(0xc0ffee);
+  /** 太阳相对方阵的固定偏移，保证阴影方向在整局里是一致的。 */
+  private readonly sunOffset = new THREE.Vector3(-38, 52, 28);
 
   constructor(private readonly r: Renderer) {
     this.scene = r.scene;
@@ -148,9 +151,15 @@ export class GameView {
     this.disposeLevel();
     const root = new THREE.Group();
     const theme: SkyTheme = world.level.id >= 4 ? CRIMSON : DAY;
+    const q = this.r.quality;
 
     root.add(createSky(theme));
-    for (const l of createLights(theme)) root.add(l);
+    // 环境光就是这片天空本身 —— 金属反射到的和玩家看到的是同一个天色
+    this.r.setEnvironment(createSkyEnvironment(this.r.renderer, theme), 0.7);
+
+    const lights = createLights(theme, q.shadowMap);
+    for (const l of lights.all) root.add(l);
+    this.lights = lights;
     this.scene.fog = new THREE.Fog(theme.fog, 90, 420);
 
     const rng = new Rng(0x1234 + world.level.id * 977);
@@ -215,6 +224,23 @@ export class GameView {
     this.gold.update(dt);
 
     this.camera.update(this.r.camera, dt, world.squad.x, world.squad.z, world.squad.depth, world.boss.active);
+    this.followSun(world);
+  }
+
+  /**
+   * 让阴影相机跟着方阵走。
+   * 方向光的阴影相机是个固定大小的正交盒，不跟着走的话方阵一往前推就出了盒子，
+   * 阴影会整片消失。
+   */
+  private followSun(world: World): void {
+    const sun = this.lights?.sun;
+    if (!sun || !sun.castShadow) return;
+    const cx = world.squad.x * 0.4;
+    const cz = world.squad.z + 6;
+    sun.target.position.set(cx, 0, cz);
+    sun.target.updateMatrixWorld();
+    sun.position.set(cx + this.sunOffset.x, this.sunOffset.y, cz + this.sunOffset.z);
+    sun.shadow.camera.updateProjectionMatrix();
   }
 
   // ── 同步 ────────────────────────────────────────────────────

@@ -3,7 +3,9 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { QUALITY, type QualityLevel, type QualitySettings } from './Quality';
 
 /** 竖屏 9:16。桌面端在窗口里居中放一块竖屏画布，手机端就是满屏。 */
 export const ASPECT = 9 / 16;
@@ -12,42 +14,91 @@ export class Renderer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
-  readonly composer: EffectComposer;
-  private readonly bloom: UnrealBloomPass;
+  composer!: EffectComposer;
+  quality: QualitySettings;
+
+  private bloom!: UnrealBloomPass;
+  private smaa: SMAAPass | null = null;
+  private gtao: GTAOPass | null = null;
+  private renderPass!: RenderPass;
   /** 画布的 CSS 尺寸，UI 层拿它做世界坐标 → 屏幕坐标投影。 */
   viewWidth = 0;
   viewHeight = 0;
 
-  constructor(readonly canvas: HTMLCanvasElement) {
+  constructor(readonly canvas: HTMLCanvasElement, level: QualityLevel) {
+    this.quality = QUALITY[level];
+
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: false, // 走 composer，MSAA 用不上，改用 SMAA
       powerPreference: 'high-performance',
       stencil: false,
     });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.98;
-
-    // 金属材质需要环境反射，否则金块、金锭、钢桁架会全渲染成黑色
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.38;
-    pmrem.dispose();
+    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // composer 每一趟 pass 都会重置统计，手动累计才能拿到整帧的真实三角形数
+    this.renderer.info.autoReset = false;
 
     this.camera = new THREE.PerspectiveCamera(54, ASPECT, 0.5, 1400);
 
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    // 门、枪口、爆炸的发光 —— 广告那种"亮到过曝"的观感主要靠它。
-    // 阈值是在 tone mapping 之前的线性空间里比的：被太阳照亮的白色路面标线
-    // 线性值就已经超过 1 了，所以阈值必须开到 1 以上，否则整条路都会糊成一片白。
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.62, 0.5, 1.25);
-    this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
-
+    this.buildComposer();
+    this.applyQuality(level);
     this.resize();
+  }
+
+  private buildComposer(): void {
+    this.composer?.dispose();
+    const composer = new EffectComposer(this.renderer);
+    this.renderPass = new RenderPass(this.scene, this.camera);
+    composer.addPass(this.renderPass);
+
+    if (this.quality.gtao) {
+      // 接触阴影：几何体缝隙、方阵脚下、桁架节点处的暗部
+      const gtao = new GTAOPass(this.scene, this.camera, 1, 1);
+      gtao.output = GTAOPass.OUTPUT.Default;
+      gtao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.6, thickness: 1.2, scale: 1.0, samples: 12 });
+      composer.addPass(gtao);
+      this.gtao = gtao;
+    } else {
+      this.gtao = null;
+    }
+
+    // 只留给门、曳光弹、爆炸。阈值是在 tone mapping 之前的线性空间里比的，
+    // 被太阳照亮的白色路面标线线性值就已经超过 1，所以阈值必须开在 1 以上。
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.32, 0.5, 1.7);
+    composer.addPass(this.bloom);
+    composer.addPass(new OutputPass());
+
+    if (this.quality.smaa) {
+      this.smaa = new SMAAPass();
+      composer.addPass(this.smaa);
+    } else {
+      this.smaa = null;
+    }
+
+    this.composer = composer;
+  }
+
+  applyQuality(level: QualityLevel): void {
+    const q = QUALITY[level];
+    const rebuild = q.gtao !== this.quality.gtao || q.smaa !== this.quality.smaa;
+    this.quality = q;
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, q.maxPixelRatio));
+    this.renderer.shadowMap.enabled = q.shadowMap > 0;
+    if (rebuild) this.buildComposer();
+    this.resize();
+  }
+
+  private envTarget: THREE.WebGLRenderTarget | null = null;
+
+  /** 环境贴图由 GameView 按关卡主题生成后交进来。 */
+  setEnvironment(target: THREE.WebGLRenderTarget, intensity = 1): void {
+    this.envTarget?.dispose();
+    this.envTarget = target;
+    this.scene.environment = target.texture;
+    this.scene.environmentIntensity = intensity;
   }
 
   resize(): void {
@@ -70,11 +121,13 @@ export class Renderer {
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
     this.bloom.setSize(w, h);
+    this.gtao?.setSize(w, h);
     this.camera.aspect = ASPECT;
     this.camera.updateProjectionMatrix();
   }
 
   render(): void {
+    this.renderer.info.reset();
     this.composer.render();
   }
 
@@ -87,6 +140,10 @@ export class Renderer {
     out.x = (p.x * 0.5 + 0.5) * this.viewWidth;
     out.y = (-p.y * 0.5 + 0.5) * this.viewHeight;
   }
+
+  get triangles(): number {
+    return this.renderer.info.render.triangles;
+  }
 }
 
 /**
@@ -95,7 +152,7 @@ export class Renderer {
  * 这样前方的尸潮、门和 Boss 能一次性全进画面。
  */
 export class ChaseCamera {
-  private readonly pos = new THREE.Vector3(0, 11.5, -15);
+  private readonly pos = new THREE.Vector3(0, 12, -16.5);
   private readonly look = new THREE.Vector3(0, 1.6, 12);
   private shake = 0;
   /** Boss 战时拉远一点，把 Boss 完整框进来。 */
@@ -149,8 +206,8 @@ export class ChaseCamera {
 
   /** 开新一局时把镜头瞬移到位，避免从上一局的位置飞过来。 */
   snap(squadX: number, squadZ: number): void {
-    this.pos.set(squadX * 0.42, 11.5, squadZ - 16.5);
-    this.look.set(squadX * 0.55, 2.0, squadZ + 27);
+    this.pos.set(squadX * 0.42, 12, squadZ - 18);
+    this.look.set(squadX * 0.55, 2.0, squadZ + 28);
     this.shake = 0;
     this.zoom = 0;
     this.depth = 0;

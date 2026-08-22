@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { LEVELS } from '../config/levels';
 import { GameView } from '../render/GameView';
 import { Renderer } from '../render/Renderer';
+import { guessQuality, storedQuality } from '../render/Quality';
 import { World } from '../sim/World';
 import type { SimEvent } from '../sim/types';
 import { loadSave, writeSave, type SaveData } from '../meta/Save';
@@ -40,6 +41,9 @@ export class Game {
       contact: w?.enemies.contactCount,
       drawn: this.view.instanceCounts(),
       fog: !!this.renderer.scene.fog,
+      quality: this.renderer.quality.level,
+      tris: this.renderer.triangles,
+      calls: this.renderer.renderer.info.render.calls,
     };
   }
 
@@ -77,7 +81,7 @@ export class Game {
 
   constructor(canvas: HTMLCanvasElement, overlay: HTMLElement) {
     this.save = loadSave();
-    this.renderer = new Renderer(canvas);
+    this.renderer = new Renderer(canvas, storedQuality() ?? guessQuality());
     this.view = new GameView(this.renderer);
     this.input = new Input(canvas, () => this.renderer.viewWidth);
     this.audio.setMuted(this.save.muted);
