@@ -21,7 +21,13 @@ export class CrowdBatch {
   private readonly axisY = new THREE.Vector3(0, 1, 0);
   private n = 0;
 
-  constructor(geometry: THREE.BufferGeometry, material: THREE.Material, readonly capacity: number) {
+  constructor(
+    geometry: THREE.BufferGeometry,
+    material: THREE.Material,
+    readonly capacity: number,
+    /** 阴影专用深度材质：跑同一套蒙皮变换，否则影子是静止姿态的。 */
+    depthMaterial?: THREE.Material,
+  ) {
     const g = geometry;
     const f1 = (len: number) => {
       const a = new THREE.InstancedBufferAttribute(new Float32Array(len), 1);
@@ -49,7 +55,12 @@ export class CrowdBatch {
     this.mesh.frustumCulled = false;
     this.mesh.count = 0;
     this.mesh.castShadow = false;
-    this.mesh.receiveShadow = false;
+    this.mesh.receiveShadow = true;
+    if (depthMaterial) this.mesh.customDepthMaterial = depthMaterial;
+  }
+
+  setCastShadow(on: boolean): void {
+    this.mesh.castShadow = on;
   }
 
   begin(): void {

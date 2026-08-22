@@ -18,9 +18,14 @@ import { Rng } from '../../core/Rng';
  */
 export function weldSmooth(geo: THREE.BufferGeometry, creaseDeg = 42): THREE.BufferGeometry {
   const welded = mergeVertices(geo, 1e-4);
-  const out = toCreasedNormals(welded, (creaseDeg * Math.PI) / 180);
-  if (welded !== out) welded.dispose();
-  return out;
+  const creased = toCreasedNormals(welded, (creaseDeg * Math.PI) / 180);
+  if (welded !== creased) welded.dispose();
+  // toCreasedNormals 吐出来的是完全展开的非索引几何体（每个三角形三份顶点）。
+  // 再焊一次能把平滑区域重新共享起来 —— 顶点数常常能降到三分之一，
+  // 这对要跑几百个实例的角色是实打实的开销。
+  const reindexed = mergeVertices(creased, 1e-5);
+  if (reindexed !== creased) creased.dispose();
+  return reindexed;
 }
 
 /** 沿某根轴做锥化：坐标越靠近轴的正端，横截面缩得越小。 */

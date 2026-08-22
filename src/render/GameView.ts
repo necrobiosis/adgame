@@ -21,25 +21,33 @@ import { BlockMesh } from './hud3d/BlockMesh';
 import { GateWall } from './hud3d/GateWall';
 import { HealthBarBatch } from './hud3d/HealthBarBatch';
 import { CrowdBatch } from './units/CrowdRenderer';
-import { createCrowdMaterial, updateCrowdTime } from './units/CrowdMaterial';
+import { createCrowdMaterial, type CrowdMaterialSet } from './units/CrowdMaterial';
 import {
   bossGeometry,
   bruteGeometry,
+  geometryPivots,
   runnerGeometry,
   screamerGeometry,
   soldierGeometry,
   titanGeometry,
   zombieGeometry,
+  type BuildQuality,
 } from './units/HumanoidGeometry';
 import { cannonGeometry, shellGeometry } from './units/PropGeometry';
 
-/** 各类敌人的实例上限。超出的不画 —— 尸潮到这个密度，肉眼已经分不出多少了。 */
+/**
+ * 各类敌人的实例缓冲上限。
+ *
+ * 真正每帧画多少由画质档的 enemyInstances 决定 —— 渲染层只挑**离方阵最近的
+ * 那一批**画出来。被舍弃的都在百米开外、埋在雾里，屏幕上只有几个像素，
+ * 而模拟层里它们照常存在、照常推进、照常啃人，玩法一点没变。
+ */
 const CROWD_CAPACITY: Record<EnemyKind, number> = {
-  walker: 1400,
-  runner: 420,
-  screamer: 60,
-  brute: 48,
-  titan: 36,
+  walker: 360,
+  runner: 200,
+  screamer: 48,
+  brute: 40,
+  titan: 32,
   boss: 1,
 };
 
@@ -65,11 +73,17 @@ export class GameView {
   readonly floats: FloatRequest[] = [];
 
   private readonly scene: THREE.Scene;
-  private readonly crowdMat: THREE.MeshStandardMaterial;
-  private readonly bossMat: THREE.MeshStandardMaterial;
+  /**
+   * 每种角色一套材质。
+   * 骨骼轴心是 uniform，而每种角色的身材比例不同、轴心也就不同 ——
+   * 共用一套材质的话后建的会把先建的轴心覆盖掉，蒙皮整个错位。
+   */
+  private readonly matSets: CrowdMaterialSet[] = [];
   private readonly batches = new Map<EnemyKind, CrowdBatch>();
   private readonly tints = new Map<EnemyKind, THREE.Color>();
   private soldiers!: CrowdBatch;
+  /** 每帧重建的"最近 N 个敌人"缓冲。 */
+  private readonly visible: Enemy[] = [];
   private cannons!: THREE.InstancedMesh;
   private shells!: THREE.InstancedMesh;
   private readonly bars = new HealthBarBatch(64);
@@ -98,13 +112,21 @@ export class GameView {
 
   constructor(private readonly r: Renderer) {
     this.scene = r.scene;
-    this.crowdMat = createCrowdMaterial();
-    this.bossMat = createCrowdMaterial({ emissive: 0x2a0603, roughness: 0.62, metalness: 0.1 });
-    this.buildDynamic();
+    this.buildCharacters();
+    this.buildProps();
   }
 
-  private buildDynamic(): void {
-    const geos: Record<EnemyKind, () => THREE.BufferGeometry> = {
+  /**
+   * 角色几何体按画质档生成。
+   * 骨骼轴心是几何体自带的（buildSkeleton 算出来的那一套），必须交给材质 ——
+   * 两边用的不是同一份轴心的话，蒙皮会整个错位。
+   */
+  private buildCharacters(): void {
+    const q: BuildQuality = {
+      radialSegments: this.r.quality.radialSegments,
+      lengthDetail: this.r.quality.lengthDetail,
+    };
+    const geos: Record<EnemyKind, (q: BuildQuality) => THREE.BufferGeometry> = {
       walker: zombieGeometry,
       runner: runnerGeometry,
       screamer: screamerGeometry,
@@ -112,16 +134,33 @@ export class GameView {
       titan: titanGeometry,
       boss: bossGeometry,
     };
+
+    const crowdShadows = this.r.quality.crowdShadows && this.r.quality.shadowMap > 0;
     for (const kind of Object.keys(geos) as EnemyKind[]) {
-      const mat = kind === 'boss' ? this.bossMat : this.crowdMat;
-      const batch = new CrowdBatch(geos[kind](), mat, CROWD_CAPACITY[kind]);
+      const geo = geos[kind](q);
+      const set = kind === 'boss'
+        ? createCrowdMaterial({ emissive: 0x2a0603, roughness: 0.66, metalness: 0.12 })
+        : createCrowdMaterial();
+      set.setPivots(geometryPivots(geo));
+      this.matSets.push(set);
+      const batch = new CrowdBatch(geo, set.material, CROWD_CAPACITY[kind], set.depthMaterial);
+      // 大体型的怪和 Boss 永远投影，杂兵只在高画质档投
+      batch.setCastShadow(this.r.quality.shadowMap > 0 && (crowdShadows || ENEMY_STATS[kind].scale >= 1.5));
       this.batches.set(kind, batch);
       this.scene.add(batch.mesh);
       this.tints.set(kind, new THREE.Color(ENEMY_STATS[kind].tint));
     }
 
-    this.soldiers = new CrowdBatch(soldierGeometry(), this.crowdMat, MAX_RENDERED_SOLDIERS);
+    const soldierGeo = soldierGeometry(q);
+    const soldierMat = createCrowdMaterial({ roughness: 0.74, metalness: 0.1 });
+    soldierMat.setPivots(geometryPivots(soldierGeo));
+    this.matSets.push(soldierMat);
+    this.soldiers = new CrowdBatch(soldierGeo, soldierMat.material, MAX_RENDERED_SOLDIERS, soldierMat.depthMaterial);
+    this.soldiers.setCastShadow(this.r.quality.shadowMap > 0);
     this.scene.add(this.soldiers.mesh);
+  }
+
+  private buildProps(): void {
 
     this.cannons = new THREE.InstancedMesh(
       cannonGeometry(),
@@ -197,11 +236,36 @@ export class GameView {
     this.levelRoot = new THREE.Group();
   }
 
+  /**
+   * 开发期：把镜头钉在某个目标近处，用来逐个检查资产。
+   * null 表示恢复正常的追尾镜头。
+   */
+  inspect: { target: 'squad' | 'boss' | 'enemy'; dist: number; height: number; yaw: number } | null = null;
+
+  private applyInspect(world: World): boolean {
+    const ins = this.inspect;
+    if (!ins) return false;
+    let cx = world.squad.x;
+    let cy = 1.0;
+    let cz = world.squad.z;
+    if (ins.target === 'boss' && world.boss.enemy) {
+      cx = world.boss.enemy.x;
+      cy = world.boss.enemy.scale * 1.2;
+      cz = world.boss.enemy.z;
+    } else if (ins.target === 'enemy') {
+      const e = world.enemies.list.find((x) => x.alive && !x.scripted);
+      if (e) { cx = e.x; cy = e.scale * 0.9; cz = e.z; }
+    }
+    const cam = this.r.camera;
+    cam.position.set(cx + Math.sin(ins.yaw) * ins.dist, cy + ins.height, cz + Math.cos(ins.yaw) * ins.dist);
+    cam.lookAt(cx, cy, cz);
+    return true;
+  }
+
   update(world: World, dt: number, events: readonly SimEvent[]): void {
     this.time += dt;
     this.floats.length = 0;
-    updateCrowdTime(this.crowdMat, this.time);
-    updateCrowdTime(this.bossMat, this.time);
+    for (const m of this.matSets) m.setTime(this.time);
 
     this.syncEnemies(world);
     this.syncSquad(world);
@@ -223,7 +287,9 @@ export class GameView {
     this.smoke.update(dt);
     this.gold.update(dt);
 
-    this.camera.update(this.r.camera, dt, world.squad.x, world.squad.z, world.squad.depth, world.boss.active);
+    if (!this.applyInspect(world)) {
+      this.camera.update(this.r.camera, dt, world.squad.x, world.squad.z, world.squad.depth, world.boss.active);
+    }
     this.followSun(world);
   }
 
@@ -249,29 +315,44 @@ export class GameView {
     for (const b of this.batches.values()) b.begin();
     this.bars.begin();
 
+    // 只画离方阵最近的一批。远处的那些在雾里只有几个像素，
+    // 省下的预算全部留给近处角色的精度。
+    const vis = this.visible;
+    vis.length = 0;
     for (const e of world.enemies.list) {
       if (e.scripted) continue; // Boss 单独处理
+      if (!e.alive && e.dying <= 0) continue;
+      vis.push(e);
+    }
+    const budget = this.r.quality.enemyInstances;
+    if (vis.length > budget) {
+      const sz = world.squad.z;
+      vis.sort((a, b) => Math.abs(a.z - sz) - Math.abs(b.z - sz));
+      vis.length = budget;
+    }
+
+    for (const e of vis) {
       const batch = this.batches.get(e.kind);
-      if (!batch) continue;
-      this.addEnemy(batch, e);
+      if (batch) this.addEnemy(batch, e, world.squad.z);
     }
 
     for (const b of this.batches.values()) b.end();
   }
 
-  private addEnemy(batch: CrowdBatch, e: Enemy): void {
+  private addEnemy(batch: CrowdBatch, e: Enemy, squadZ: number): void {
     const st = ENEMY_STATS[e.kind];
     const death = e.alive ? 0 : 1 - Math.max(0, e.dying) / DYING_TIME;
     // 僵尸朝 -z 走，几何体本身面朝 +z，所以转 180°
-    const yaw = Math.PI + (e.id % 7 - 3) * 0.045;
-    const walking = e.alive;
+    const yaw = Math.PI + ((e.id % 7) - 3) * 0.045;
+    // 贴到方阵跟前的会切成攻击姿态
+    const attacking = e.alive && e.z - squadZ < 2.6 + e.scale * 0.6;
     batch.add(
       e.x, 0, e.z,
       yaw,
       e.scale,
       e.phase,
-      walking ? 0 : 0,
       0,
+      attacking ? 1 : 0,
       death,
       e.flash > 0 ? e.flash / 0.09 : 0,
       this.tints.get(e.kind)!,

@@ -1,93 +1,26 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { lathe, merge, paint, pipe, place, plate, roundedBox, sweep, type SweepSection } from '../geom/hardSurface';
+import { bakeSurface, jitter, weldSmooth } from '../geom/deform';
+import { BONE, assignSkin, buildSkeleton, pivots, type Skeleton } from './skeleton';
+import { Rng } from '../../core/Rng';
 
 /**
- * 程序化低模人形。
+ * 角色几何体。
  *
- * 整个项目不下载任何模型/贴图资源 —— 所有角色都是这里用盒子拼出来再合并成
- * 一个 BufferGeometry 的。除了标准的 position/normal/uv 之外，每个顶点还带：
- *   · aPart  —— 属于哪个身体部位（0 躯干 1 头 2 左臂 3 右臂 4 左腿 5 右腿）
- *   · aPivot —— 该部位的旋转轴心（肩关节 / 髋关节）
- *   · color  —— 顶点色
- * 有了这三样，走路动画就可以完全在 vertex shader 里做，一次 draw call
- * 画出上千只僵尸。见 CrowdMaterial.ts。
+ * 不再是盒子拼装：躯干和四肢都用变截面放样扫出来，截面从"圆角矩形"连续过渡到
+ * "椭圆"，肩肘膝有真实的体积转折。所有暴露的硬边（护甲片、头盔、枪械、靴子）
+ * 都带倒角。
+ *
+ * 结构上刻意让四肢的根部**埋进躯干内部**：胳膊抬起来时根部始终在胸腔里，
+ * 不会露出接缝。这样就不需要一张拓扑连续的整体网格 —— 那玩意儿程序化生成
+ * 极难做对，而埋进去的做法在平滑着色 + AO 下读起来是一体的。
  */
 
-export const PART = {
-  TORSO: 0,
-  HEAD: 1,
-  ARM_L: 2,
-  ARM_R: 3,
-  LEG_L: 4,
-  LEG_R: 5,
-} as const;
-
-interface PieceOpts {
-  /** 尺寸。 */
-  size: [number, number, number];
-  /** 中心位置。 */
-  at: [number, number, number];
-  part: number;
-  /** 旋转轴心；不给就用 at。 */
-  pivot?: [number, number, number];
-  color: number;
-  /** 绕 X 轴预旋转（弧度），用来做前倾/垂臂的静态姿态。 */
-  tilt?: number;
-  /** 绕 Z 轴预旋转。 */
-  roll?: number;
-  /** 顶部缩窄比例，用来做锥形（爪子、犄角）。 */
-  taper?: number;
-}
-
-function piece(o: PieceOpts): THREE.BufferGeometry {
-  const [w, h, d] = o.size;
-  const g = new THREE.BoxGeometry(w, h, d, 1, 1, 1);
-  if (o.taper !== undefined && o.taper !== 1) {
-    // 把上表面的四个顶点往中心收，做出锥形
-    const pos = g.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < pos.count; i++) {
-      if (pos.getY(i) > 0) {
-        pos.setX(i, pos.getX(i) * o.taper);
-        pos.setZ(i, pos.getZ(i) * o.taper);
-      }
-    }
-    g.computeVertexNormals();
-  }
-  const pivot = o.pivot ?? o.at;
-  if (o.tilt) {
-    g.translate(0, -(o.at[1] - pivot[1]), -(o.at[2] - pivot[2]));
-    g.rotateX(o.tilt);
-    g.translate(0, o.at[1] - pivot[1], o.at[2] - pivot[2]);
-  }
-  if (o.roll) g.rotateZ(o.roll);
-  g.translate(o.at[0], o.at[1], o.at[2]);
-
-  const n = g.attributes.position.count;
-  const parts = new Float32Array(n);
-  const pivots = new Float32Array(n * 3);
-  const colors = new Float32Array(n * 3);
-  const c = new THREE.Color(o.color);
-  for (let i = 0; i < n; i++) {
-    parts[i] = o.part;
-    pivots[i * 3] = pivot[0];
-    pivots[i * 3 + 1] = pivot[1];
-    pivots[i * 3 + 2] = pivot[2];
-    colors[i * 3] = c.r;
-    colors[i * 3 + 1] = c.g;
-    colors[i * 3 + 2] = c.b;
-  }
-  g.setAttribute('aPart', new THREE.BufferAttribute(parts, 1));
-  g.setAttribute('aPivot', new THREE.BufferAttribute(pivots, 3));
-  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return g;
-}
-
-function assemble(pieces: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const merged = mergeGeometries(pieces, false);
-  if (!merged) throw new Error('人形几何体合并失败');
-  for (const p of pieces) p.dispose();
-  merged.computeBoundingSphere();
-  return merged;
+export interface BuildQuality {
+  /** 截面的径向分段数。直接决定面数。 */
+  radialSegments: number;
+  /** 沿身体轴向的分段密度倍率。 */
+  lengthDetail: number;
 }
 
 export interface BodyPalette {
@@ -95,300 +28,435 @@ export interface BodyPalette {
   cloth: number;
   dark: number;
   accent: number;
+  /** 露出的骨头 / 利爪。 */
+  bone: number;
 }
 
-export interface HumanoidOptions {
-  /** 总身高（世界单位）。 */
-  height?: number;
-  /** 体宽倍率。 */
-  build?: number;
-  /** 躯干前倾弧度（僵尸驼背）。 */
-  hunch?: number;
-  /** 手臂静态前伸弧度（僵尸伸手）。 */
-  reach?: number;
+export interface HumanoidSpec {
+  height: number;
+  build: number;
+  hunch: number;
   palette: BodyPalette;
-  /** 头盔。 */
+  /** 手臂的静止前伸角度（僵尸伸手）。 */
+  reach: number;
   helmet?: boolean;
-  /** 背包。 */
   backpack?: boolean;
-  /** 手里的枪（跟着右臂动）。 */
   gun?: boolean;
-  /** 头顶犄角（大型怪）。 */
   horns?: boolean;
-  /** 手臂末端的爪子（大型怪）。 */
   claws?: boolean;
-  /** 肩甲/背刺，让剪影更狰狞。 */
   spikes?: boolean;
+  /** 破损的衣料、外露的肋骨、不对称的伤口。 */
+  decayed?: boolean;
+  /** 随机种子，用来做个体差异。 */
+  seed?: number;
 }
 
-/**
- * 造一个人形。
- * 坐标原点在脚底，面朝 +z。
- */
-export function buildHumanoid(o: HumanoidOptions): THREE.BufferGeometry {
-  const H = o.height ?? 1.78;
-  const B = o.build ?? 1;
-  const p = o.palette;
-  const hunch = o.hunch ?? 0;
-  const reach = o.reach ?? 0;
+interface Part {
+  geo: THREE.BufferGeometry;
+  /** 允许绑定的骨骼。限定候选集才不会出现"手垂在腿边被腿拽走"。 */
+  bones: number[];
+}
 
-  // 身体各段的高度分配
-  const legH = H * 0.46;
-  const torsoH = H * 0.34;
-  const headH = H * 0.16;
-  const shoulderY = legH + torsoH * 0.86;
-  const hipY = legH;
-
-  const legW = H * 0.1 * B;
-  const torsoW = H * 0.26 * B;
-  const torsoD = H * 0.15 * B;
-  const armW = H * 0.075 * B;
-  const armH = torsoH * 1.02;
-
-  const pieces: THREE.BufferGeometry[] = [];
-
-  // 腿
-  for (const [sign, part] of [[-1, PART.LEG_L], [1, PART.LEG_R]] as const) {
-    pieces.push(piece({
-      size: [legW, legH, legW * 1.15],
-      at: [sign * legW * 0.62, legH / 2, 0],
-      pivot: [sign * legW * 0.62, hipY, 0],
-      part,
-      color: p.dark,
-    }));
-    // 鞋
-    pieces.push(piece({
-      size: [legW * 1.12, H * 0.045, legW * 1.7],
-      at: [sign * legW * 0.62, H * 0.022, legW * 0.28],
-      pivot: [sign * legW * 0.62, hipY, 0],
-      part,
-      color: 0x24262b,
-    }));
-  }
-
-  // 躯干（骨盆 + 胸腔，胸腔略宽）
-  pieces.push(piece({
-    size: [torsoW * 0.88, torsoH * 0.46, torsoD],
-    at: [0, hipY + torsoH * 0.23, 0],
-    pivot: [0, hipY, 0],
-    part: PART.TORSO,
-    tilt: hunch * 0.5,
-    color: p.cloth,
+/** 沿一条骨线扫出一段肢体，截面按给定的粗细曲线变化。 */
+function limb(
+  from: THREE.Vector3,
+  to: THREE.Vector3,
+  radii: readonly { t: number; w: number; h: number; round?: number }[],
+  q: BuildQuality,
+  extend = 0,
+): THREE.BufferGeometry {
+  const dir = new THREE.Vector3().subVectors(to, from).normalize();
+  const sections: SweepSection[] = radii.map((r) => ({
+    at: new THREE.Vector3().lerpVectors(from, to, r.t).addScaledVector(dir, -extend * (1 - r.t)),
+    w: r.w,
+    h: r.h,
+    round: r.round ?? 0.65,
   }));
-  pieces.push(piece({
-    size: [torsoW, torsoH * 0.58, torsoD * 1.08],
-    at: [0, hipY + torsoH * 0.7, 0],
-    pivot: [0, hipY, 0],
-    part: PART.TORSO,
-    tilt: hunch,
-    color: p.cloth,
-  }));
+  return sweep(sections, q.radialSegments, true);
+}
 
-  if (o.backpack) {
-    pieces.push(piece({
-      size: [torsoW * 0.72, torsoH * 0.5, torsoD * 0.6],
-      at: [0, hipY + torsoH * 0.72, -torsoD * 0.75],
-      pivot: [0, hipY, 0],
-      part: PART.TORSO,
-      tilt: hunch,
-      color: p.accent,
-    }));
-  }
-  if (o.spikes) {
-    for (let i = 0; i < 3; i++) {
-      pieces.push(piece({
-        size: [H * 0.05 * B, H * 0.13 * B, H * 0.05 * B],
-        at: [(i - 1) * torsoW * 0.3, hipY + torsoH * (0.95 + i * 0.02), -torsoD * 0.5],
-        pivot: [0, hipY, 0],
-        part: PART.TORSO,
-        tilt: hunch - 0.5,
-        taper: 0.05,
-        color: p.dark,
-      }));
+/** 按质量档插值出更多中间截面，低档直接用原始控制点。 */
+function densify(
+  ctrl: readonly { t: number; w: number; h: number; round?: number }[],
+  q: BuildQuality,
+): { t: number; w: number; h: number; round?: number }[] {
+  const extra = Math.max(0, Math.round((ctrl.length - 1) * (q.lengthDetail - 0.5) * 2));
+  if (extra <= 0) return [...ctrl];
+  const out: { t: number; w: number; h: number; round?: number }[] = [];
+  for (let i = 0; i < ctrl.length - 1; i++) {
+    const a = ctrl[i]!;
+    const b = ctrl[i + 1]!;
+    out.push(a);
+    for (let k = 1; k <= extra; k++) {
+      const f = k / (extra + 1);
+      out.push({
+        t: THREE.MathUtils.lerp(a.t, b.t, f),
+        w: THREE.MathUtils.lerp(a.w, b.w, f),
+        h: THREE.MathUtils.lerp(a.h, b.h, f),
+        round: THREE.MathUtils.lerp(a.round ?? 0.65, b.round ?? 0.65, f),
+      });
     }
   }
+  out.push(ctrl[ctrl.length - 1]!);
+  return out;
+}
 
-  // 头（跟着躯干的前倾走，所以位置也要往前挪一点）
-  const headZ = Math.sin(hunch) * torsoH * 0.8;
-  const headY = shoulderY + headH * 0.42 - (1 - Math.cos(hunch)) * torsoH * 0.6;
-  pieces.push(piece({
-    size: [headH * 0.78, headH * 0.86, headH * 0.82],
-    at: [0, headY, headZ],
-    pivot: [0, headY - headH * 0.45, headZ],
-    part: PART.HEAD,
-    color: p.skin,
-  }));
-  if (o.helmet) {
-    pieces.push(piece({
-      size: [headH * 0.92, headH * 0.42, headH * 0.98],
-      at: [0, headY + headH * 0.34, headZ - headH * 0.03],
-      pivot: [0, headY - headH * 0.45, headZ],
-      part: PART.HEAD,
-      color: p.accent,
-    }));
-  }
-  if (o.horns) {
-    for (const sign of [-1, 1]) {
-      pieces.push(piece({
-        size: [headH * 0.16, headH * 0.6, headH * 0.16],
-        at: [sign * headH * 0.34, headY + headH * 0.55, headZ],
-        pivot: [0, headY - headH * 0.45, headZ],
-        part: PART.HEAD,
-        roll: sign * 0.42,
-        taper: 0.06,
-        color: p.dark,
-      }));
-    }
-  }
+export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.BufferGeometry {
+  const H = spec.height;
+  const B = spec.build;
+  const p = spec.palette;
+  const rng = new Rng(spec.seed ?? 7);
+  const skel = buildSkeleton({ height: H, build: B, hunch: spec.hunch });
+  const parts: Part[] = [];
 
-  // 手臂
-  for (const [sign, part] of [[-1, PART.ARM_L], [1, PART.ARM_R]] as const) {
-    const sx = sign * (torsoW / 2 + armW * 0.42);
-    pieces.push(piece({
-      size: [armW, armH, armW],
-      at: [sx, shoulderY - armH / 2, 0],
-      pivot: [sx, shoulderY, 0],
-      part,
-      tilt: reach,
-      color: p.cloth,
-    }));
+  const add = (geo: THREE.BufferGeometry, color: number, bones: number[]) => {
+    parts.push({ geo: paint(geo, color), bones });
+  };
+
+  // ── 躯干 ────────────────────────────────────────────────────
+  // 骨盆 → 胸腔 → 颈根。胸腔最宽，腰部收进去，颈根再收 —— 这条曲线是
+  // "人形"读起来对不对的关键。
+  const hip = skel[BONE.PELVIS]!.head;
+  const neck = skel[BONE.HEAD]!.head;
+  // 比例照真人来（以 1.8 米为基准）：肩宽 0.46、腰宽 0.32、胯宽 0.36。
+  // 之前四肢比真人粗了将近一倍，整个人读起来是一团肉球。
+  const torsoCtrl = densify([
+    { t: -0.10, w: H * 0.100 * B, h: H * 0.062 * B, round: 0.62 },
+    { t: 0.14, w: H * 0.092 * B, h: H * 0.057 * B, round: 0.66 },
+    { t: 0.44, w: H * 0.089 * B, h: H * 0.055 * B, round: 0.62 },
+    { t: 0.74, w: H * 0.118 * B, h: H * 0.066 * B, round: 0.5 },
+    { t: 0.92, w: H * 0.128 * B, h: H * 0.068 * B, round: 0.45 },
+    { t: 1.02, w: H * 0.088 * B, h: H * 0.058 * B, round: 0.62 },
+    { t: 1.10, w: H * 0.036 * B, h: H * 0.036 * B, round: 0.95 },
+  ], q);
+  add(limb(hip, neck, torsoCtrl, q), p.cloth, [BONE.PELVIS, BONE.CHEST]);
+
+  // ── 头 ──────────────────────────────────────────────────────
+  const headTop = skel[BONE.HEAD]!.tail;
+  const headCtrl = densify([
+    { t: 0.02, w: H * 0.030, h: H * 0.030, round: 0.95 },  // 脖子
+    { t: 0.22, w: H * 0.033, h: H * 0.033, round: 0.95 },
+    { t: 0.42, w: H * 0.045, h: H * 0.048, round: 0.9 },   // 下颌
+    { t: 0.66, w: H * 0.048, h: H * 0.052, round: 0.92 },  // 颧骨
+    { t: 0.88, w: H * 0.045, h: H * 0.048, round: 1 },     // 颅顶
+    { t: 1.0, w: H * 0.026, h: H * 0.03, round: 1 },
+  ], q);
+  add(limb(neck, headTop, headCtrl, q), p.skin, [BONE.HEAD, BONE.CHEST]);
+
+  // 头部的解剖学地标，全部按"颈根到颅顶"这段长度取比例
+  const headLen = headTop.y - neck.y;
+  const chinY = neck.y + headLen * 0.30;
+  const mouthY = neck.y + headLen * 0.40;
+  const eyeY = neck.y + headLen * 0.56;
+  const browY = neck.y + headLen * 0.64;
+  const faceZ = neck.z + headLen * 0.22;
+
+  // 口鼻：往前突出一小块，侧影才不是一颗光球
+  add(place(roundedBox(H * 0.042, H * 0.032, H * 0.03, H * 0.012, 2), {
+    x: 0, y: mouthY, z: faceZ,
+  }), p.skin, [BONE.HEAD]);
+  void chinY;
+
+  // ── 四肢 ────────────────────────────────────────────────────
+  const armCtrl = densify([
+    // 起点埋进胸腔里，抬手时根部不会露缝
+    { t: -0.30, w: H * 0.040 * B, h: H * 0.040 * B, round: 0.95 },
+    { t: -0.05, w: H * 0.034 * B, h: H * 0.034 * B, round: 0.95 },  // 三角肌
+    { t: 0.35, w: H * 0.028 * B, h: H * 0.028 * B, round: 0.9 },
+    { t: 0.78, w: H * 0.024 * B, h: H * 0.025 * B, round: 0.85 },
+    { t: 1.05, w: H * 0.023 * B, h: H * 0.024 * B, round: 0.85 },   // 肘
+  ], q);
+  const foreCtrl = densify([
+    { t: -0.10, w: H * 0.024 * B, h: H * 0.025 * B, round: 0.85 },
+    { t: 0.28, w: H * 0.023 * B, h: H * 0.024 * B, round: 0.85 },
+    { t: 0.72, w: H * 0.018 * B, h: H * 0.019 * B, round: 0.9 },
+    { t: 1.0, w: H * 0.016 * B, h: H * 0.017 * B, round: 0.9 },
+  ], q);
+  const thighCtrl = densify([
+    { t: -0.16, w: H * 0.052 * B, h: H * 0.053 * B, round: 0.8 },
+    { t: 0.25, w: H * 0.045 * B, h: H * 0.047 * B, round: 0.75 },
+    { t: 0.70, w: H * 0.036 * B, h: H * 0.038 * B, round: 0.75 },
+    { t: 1.04, w: H * 0.031 * B, h: H * 0.033 * B, round: 0.8 },    // 膝
+  ], q);
+  const shinCtrl = densify([
+    { t: -0.06, w: H * 0.030 * B, h: H * 0.032 * B, round: 0.8 },
+    { t: 0.28, w: H * 0.031 * B, h: H * 0.034 * B, round: 0.75 },   // 小腿肚
+    { t: 0.70, w: H * 0.022 * B, h: H * 0.024 * B, round: 0.8 },
+    { t: 1.0, w: H * 0.018 * B, h: H * 0.021 * B, round: 0.85 },    // 踝
+  ], q);
+
+  for (const side of [-1, 1] as const) {
+    const armB = side < 0 ? BONE.ARM_L : BONE.ARM_R;
+    const foreB = side < 0 ? BONE.FORE_L : BONE.FORE_R;
+    const thighB = side < 0 ? BONE.THIGH_L : BONE.THIGH_R;
+    const shinB = side < 0 ? BONE.SHIN_L : BONE.SHIN_R;
+
+    // 个体差异：左右不完全对称，一群人站一起才不像复制粘贴
+    const asym = spec.decayed ? rng.range(0.92, 1.08) : rng.range(0.98, 1.02);
+
+    const shoulder = skel[armB]!.head;
+    const elbow = skel[armB]!.tail;
+    const wrist = skel[foreB]!.tail;
+    add(limb(shoulder, elbow, armCtrl.map((c) => ({ ...c, w: c.w * asym, h: c.h * asym })), q), p.cloth, [armB, BONE.CHEST]);
+    add(limb(elbow, wrist, foreCtrl, q), spec.decayed ? p.skin : p.cloth, [foreB, armB]);
     // 手
-    pieces.push(piece({
-      size: [armW * 1.05, armW * 1.1, armW * 1.05],
-      at: [sx, shoulderY - armH - armW * 0.3, 0],
-      pivot: [sx, shoulderY, 0],
-      part,
-      tilt: reach,
-      color: p.skin,
-    }));
-    if (o.claws) {
-      for (let i = 0; i < 3; i++) {
-        pieces.push(piece({
-          size: [armW * 0.22, armW * 1.3, armW * 0.22],
-          at: [sx + (i - 1) * armW * 0.34, shoulderY - armH - armW * 1.2, armW * 0.2],
-          pivot: [sx, shoulderY, 0],
-          part,
-          tilt: reach + 0.3,
-          taper: 0.05,
-          color: 0xe8e2d2,
-        }));
+    add(place(roundedBox(H * 0.032 * B, H * 0.042 * B, H * 0.028 * B, H * 0.011, 2), {
+      x: wrist.x, y: wrist.y - H * 0.018, z: wrist.z,
+    }), p.skin, [foreB]);
+
+    // 肩甲：让肩部有真正的转折，而不是一根圆管直接插进躯干
+    if (spec.helmet) {
+      add(place(lathe([
+        [H * 0.001, 0], [H * 0.036 * B, H * 0.006], [H * 0.049 * B, H * 0.022],
+        [H * 0.050 * B, H * 0.044], [H * 0.044 * B, H * 0.062], [H * 0.030 * B, H * 0.07],
+      ], Math.max(8, q.radialSegments)), {
+        x: shoulder.x * 1.02, y: shoulder.y + H * 0.03, z: shoulder.z,
+        rz: side * 0.3, s: [1, -1, 1],
+      }), p.accent, [armB, BONE.CHEST]);
+    }
+
+    if (spec.claws) {
+      for (let c = 0; c < 3; c++) {
+        const cx = wrist.x + (c - 1) * H * 0.018 * B;
+        add(place(lathe([[H * 0.009 * B, 0], [H * 0.006 * B, H * 0.03], [0.0005, H * 0.058]], 5), {
+          x: cx, y: wrist.y - H * 0.05, z: wrist.z + H * 0.012, rx: 0.5,
+        }), p.bone, [foreB]);
       }
     }
+
+    const hipJ = skel[thighB]!.head;
+    const knee = skel[thighB]!.tail;
+    const ankle = skel[shinB]!.tail;
+    add(limb(hipJ, knee, thighCtrl, q), p.dark, [thighB, BONE.PELVIS]);
+    add(limb(knee, ankle, shinCtrl, q), p.dark, [shinB, thighB]);
+    // 靴子：带倒角的方块 + 一点鞋头的圆润
+    add(place(roundedBox(H * 0.046 * B, H * 0.038, H * 0.085, H * 0.014, 2), {
+      x: ankle.x, y: H * 0.02, z: ankle.z + H * 0.016,
+    }), 0x24262b, [shinB]);
+    if (spec.helmet) {
+      // 护膝
+      add(place(roundedBox(H * 0.042 * B, H * 0.044, H * 0.03, H * 0.012, 2), {
+        x: knee.x, y: knee.y + H * 0.008, z: knee.z + H * 0.028 * B,
+      }), p.dark, [thighB, shinB]);
+    }
   }
 
-  // 枪（挂在右臂上，跟着右臂摆）
-  if (o.gun) {
-    const sx = torsoW / 2 + armW * 0.42;
-    const gunZ = armH * 0.55;
-    pieces.push(piece({
-      size: [armW * 0.5, armW * 0.5, armH * 1.1],
-      at: [sx - armW * 0.1, shoulderY - armH * 0.72, gunZ],
-      pivot: [sx, shoulderY, 0],
-      part: PART.ARM_R,
-      tilt: reach,
-      color: 0x2b2f36,
-    }));
-    pieces.push(piece({
-      size: [armW * 0.7, armW * 0.85, armW * 0.7],
-      at: [sx - armW * 0.1, shoulderY - armH * 0.9, gunZ - armH * 0.42],
-      pivot: [sx, shoulderY, 0],
-      part: PART.ARM_R,
-      tilt: reach,
-      color: 0x3a4049,
-    }));
+  // ── 装备与特征 ──────────────────────────────────────────────
+  const chest = skel[BONE.CHEST]!;
+
+  if (spec.helmet) {
+    // 盔壳用放样做出前低后高的形状，再压一条帽檐
+    // 盔壳用车削件：轮廓自己控制，收口是圆的而不是尖的。
+    // 从眉骨往上罩住整个颅顶，脸留在外面。
+    const seg = Math.max(8, Math.round(q.radialSegments * 1.2));
+    const helmH = headLen * 0.62;
+    add(place(lathe([
+      [H * 0.053, 0], [H * 0.057, helmH * 0.1], [H * 0.056, helmH * 0.36],
+      [H * 0.050, helmH * 0.6], [H * 0.038, helmH * 0.84], [H * 0.02, helmH * 0.97], [0.0006, helmH],
+    ], seg), { x: 0, y: browY, z: neck.z + headLen * 0.02 }), p.accent, [BONE.HEAD]);
+    // 帽檐
+    add(place(plate(H * 0.096, H * 0.034, H * 0.008, { corner: H * 0.013 }), {
+      x: 0, y: browY + headLen * 0.04, z: faceZ + headLen * 0.09, rx: -0.5,
+    }), p.accent, [BONE.HEAD]);
+    // 耳罩
+    for (const sx of [-1, 1]) {
+      add(place(roundedBox(H * 0.013, H * 0.04, H * 0.036, H * 0.005, 2), {
+        x: sx * H * 0.05, y: eyeY, z: neck.z,
+      }), p.dark, [BONE.HEAD]);
+    }
+    // 夜视仪基座 —— 剪影上的一个识别点
+    add(place(roundedBox(H * 0.024, H * 0.018, H * 0.016, H * 0.004, 1), {
+      x: 0, y: browY + headLen * 0.16, z: faceZ + headLen * 0.06,
+    }), p.dark, [BONE.HEAD]);
+    // 护目镜：一条横过脸的暗带，脸立刻有了焦点
+    add(place(roundedBox(H * 0.084, H * 0.02, H * 0.018, H * 0.007, 2), {
+      x: 0, y: eyeY, z: faceZ - headLen * 0.02,
+    }), 0x14171d, [BONE.HEAD]);
+    // 下巴带
+    add(place(pipe([
+      new THREE.Vector3(-H * 0.046, neck.y + H * 0.2, neck.z),
+      new THREE.Vector3(-H * 0.036, neck.y + H * 0.115, neck.z + H * 0.022),
+      new THREE.Vector3(H * 0.036, neck.y + H * 0.115, neck.z + H * 0.022),
+      new THREE.Vector3(H * 0.046, neck.y + H * 0.2, neck.z),
+    ], H * 0.005, 5), {}), p.dark, [BONE.HEAD]);
   }
 
-  return assemble(pieces);
+  if (spec.backpack) {
+    const bz = chest.head.z - H * 0.075 * B;
+    add(place(roundedBox(H * 0.13 * B, H * 0.15, H * 0.07, H * 0.022, 3), {
+      x: 0, y: chest.head.y + H * 0.05, z: bz,
+    }), p.accent, [BONE.CHEST]);
+    // 卷起来的睡袋 + 背带
+    add(place(lathe([[H * 0.026, 0], [H * 0.03, H * 0.02], [H * 0.03, H * 0.1], [H * 0.026, H * 0.12]], 8), {
+      x: 0, y: chest.head.y + H * 0.055, z: bz - H * 0.05, rz: Math.PI / 2,
+    }), p.dark, [BONE.CHEST]);
+    for (const sx of [-1, 1]) {
+      add(place(pipe([
+        new THREE.Vector3(sx * H * 0.05, chest.head.y + H * 0.11, bz + H * 0.03),
+        new THREE.Vector3(sx * H * 0.06, chest.head.y + H * 0.06, chest.head.z + H * 0.05),
+        new THREE.Vector3(sx * H * 0.045, chest.head.y - H * 0.02, chest.head.z + H * 0.05),
+      ], H * 0.008, 5), {}), p.dark, [BONE.CHEST]);
+    }
+    // 胸挂：三个弹匣包并排，明显凸出于胸甲之外
+    for (let i = 0; i < 3; i++) {
+      add(place(roundedBox(H * 0.032 * B, H * 0.05, H * 0.026, H * 0.008, 2), {
+        x: (i - 1) * H * 0.036 * B,
+        y: chest.head.y + H * 0.022,
+        z: chest.head.z + H * 0.062 * B,
+        rx: 0.06,
+      }), p.dark, [BONE.CHEST]);
+    }
+    // 胸甲本体
+    add(place(plate(H * 0.13 * B, H * 0.13, H * 0.016, { corner: H * 0.026 }), {
+      x: 0, y: chest.head.y + H * 0.055, z: chest.head.z + H * 0.056 * B, rx: 0.08,
+    }), p.cloth, [BONE.CHEST]);
+  }
+
+  if (spec.gun) {
+    // 步枪挂在右前臂上，跟着手一起摆
+    const wrist = skel[BONE.FORE_R]!.tail;
+    const gx = wrist.x - H * 0.012;
+    const gy = wrist.y - H * 0.01;
+    const gz = wrist.z + H * 0.02;
+    // 机匣
+    add(place(roundedBox(H * 0.028, H * 0.045, H * 0.16, H * 0.008, 2), { x: gx, y: gy, z: gz + H * 0.03 }), 0x2b2f36, [BONE.FORE_R]);
+    // 枪管 + 消焰器（车削件，有明确的口径变化）
+    add(place(lathe([
+      [H * 0.011, 0], [H * 0.011, H * 0.11], [H * 0.008, H * 0.115],
+      [H * 0.008, H * 0.17], [H * 0.014, H * 0.175], [H * 0.013, H * 0.2], [0.0005, H * 0.202],
+    ], 8), { x: gx, y: gy + H * 0.012, z: gz + H * 0.11, rx: Math.PI / 2 }), 0x3a4049, [BONE.FORE_R]);
+    // 弹匣
+    add(place(roundedBox(H * 0.016, H * 0.07, H * 0.03, H * 0.006, 1), { x: gx, y: gy - H * 0.05, z: gz + H * 0.01, rx: 0.22 }), 0x2b2f36, [BONE.FORE_R]);
+    // 枪托
+    add(place(roundedBox(H * 0.024, H * 0.05, H * 0.09, H * 0.012, 2), { x: gx, y: gy - H * 0.004, z: gz - H * 0.075 }), 0x353a42, [BONE.FORE_R]);
+    // 瞄具
+    add(place(roundedBox(H * 0.014, H * 0.018, H * 0.05, H * 0.005, 1), { x: gx, y: gy + H * 0.032, z: gz + H * 0.02 }), 0x22262c, [BONE.FORE_R]);
+  }
+
+  if (spec.horns) {
+    for (const sx of [-1, 1]) {
+      add(place(lathe([
+        [H * 0.016 * B, 0], [H * 0.013 * B, H * 0.03], [H * 0.008 * B, H * 0.075], [0.0008, H * 0.11],
+      ], 6), {
+        x: sx * H * 0.045 * B, y: headTop.y - H * 0.03, z: headTop.z - H * 0.01,
+        rz: sx * 0.55, rx: -0.3,
+      }), p.bone, [BONE.HEAD]);
+    }
+  }
+
+  if (spec.spikes) {
+    // 背刺：大小不一、间距不均，刻意不做成整齐的一排
+    const n = 4;
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      const scale = 0.7 + rng.next() * 0.6;
+      add(place(lathe([
+        [H * 0.014 * B * scale, 0], [H * 0.01 * B * scale, H * 0.03], [0.0008, H * 0.085 * scale],
+      ], 5), {
+        x: rng.range(-1, 1) * H * 0.02 * B,
+        y: chest.head.y + H * (0.02 + t * 0.11),
+        z: chest.head.z - H * 0.075 * B,
+        rx: -1.1 + rng.range(-0.2, 0.2),
+      }), p.dark, [BONE.CHEST]);
+    }
+  }
+
+  if (spec.decayed) {
+    // 外露的肋骨 —— 只在一侧，制造不对称
+    const side = rng.next() < 0.5 ? -1 : 1;
+    for (let i = 0; i < 3; i++) {
+      add(place(pipe([
+        new THREE.Vector3(side * H * 0.01, chest.head.y + H * (0.02 + i * 0.028), chest.head.z + H * 0.07 * B),
+        new THREE.Vector3(side * H * 0.055 * B, chest.head.y + H * (0.028 + i * 0.028), chest.head.z + H * 0.05 * B),
+        new THREE.Vector3(side * H * 0.07 * B, chest.head.y + H * (0.02 + i * 0.028), chest.head.z),
+      ], H * 0.006, 4), {}), p.bone, [BONE.CHEST]);
+    }
+    // 破烂的衣摆
+    for (let i = 0; i < 4; i++) {
+      const a = rng.range(0, Math.PI * 2);
+      add(place(plate(H * 0.05, H * 0.09, H * 0.006, { corner: H * 0.01 }), {
+        x: Math.cos(a) * H * 0.1 * B,
+        y: hip.y - H * 0.02 + rng.range(-0.02, 0.02) * H,
+        z: Math.sin(a) * H * 0.06 * B,
+        ry: -a,
+        rx: rng.range(-0.2, 0.2),
+      }), p.cloth, [BONE.PELVIS]);
+    }
+  }
+
+  // ── 合并 → 蒙皮 → 平滑 → 烘表面 ────────────────────────────
+  for (const part of parts) assignSkin(part.geo, skel, part.bones);
+  let geo = merge(parts.map((x) => x.geo));
+
+  // 极轻微的顶点抖动：完全对称的躯体看起来像塑料模型
+  if (spec.decayed) jitter(geo, H * 0.0035, spec.seed ?? 3);
+
+  geo = weldSmooth(geo, 46);
+  // 角色也要烘 AO。不烘的话 aSurf.x 恒为 1，着色器里的脏污项会被压到几乎为零，
+  // 整个人就是一块平涂的色块 —— 腋下、裆部、头盔底下这些该暗的地方全是亮的。
+  // 网格取得比硬表面粗一档，一个角色三十几毫秒，开局总共几百毫秒可以接受。
+  geo = bakeSurface(geo, { gridSize: 20, rays: 10, steps: 4 });
+  geo.userData.pivots = pivots(skel);
+  geo.userData.skeleton = skel;
+  return geo;
 }
 
-// ── 现成的角色 ────────────────────────────────────────────────
-
-/** 普通尸群：驼背、伸手、灰败。 */
-export function zombieGeometry(): THREE.BufferGeometry {
-  return buildHumanoid({
-    height: 1.76,
-    build: 0.95,
-    hunch: 0.34,
-    reach: -1.15,
-    palette: { skin: 0xb8c3a6, cloth: 0x7d8070, dark: 0x55584d, accent: 0x8a8272 },
-  });
+/** 取几何体上附带的骨骼轴心，交给材质。 */
+export function geometryPivots(geo: THREE.BufferGeometry): Float32Array {
+  return geo.userData.pivots as Float32Array;
 }
 
-/** 疾行者：更瘦、前倾更狠。 */
-export function runnerGeometry(): THREE.BufferGeometry {
-  return buildHumanoid({
-    height: 1.72,
-    build: 0.82,
-    hunch: 0.55,
-    reach: -1.45,
-    palette: { skin: 0xc9bd96, cloth: 0x8a7a55, dark: 0x5b4d36, accent: 0x9d8a5f },
-  });
+export function geometrySkeleton(geo: THREE.BufferGeometry): Skeleton {
+  return geo.userData.skeleton as Skeleton;
 }
 
-/** 嚎叫者：细长、张着嘴、带角。 */
-export function screamerGeometry(): THREE.BufferGeometry {
+// ── 各类角色 ──────────────────────────────────────────────────
+
+export function zombieGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 2.0,
-    build: 0.86,
-    hunch: 0.2,
-    reach: -0.5,
-    horns: true,
-    claws: true,
-    palette: { skin: 0xd08ea0, cloth: 0x7a3f52, dark: 0x4a2130, accent: 0x9c4f66 },
-  });
+    height: 1.76, build: 0.95, hunch: 0.34, reach: -1.15, decayed: true, seed: 11,
+    palette: { skin: 0xb8c3a6, cloth: 0x7d8070, dark: 0x55584d, accent: 0x8a8272, bone: 0xd8d2bd },
+  }, q);
 }
 
-/** 蛮兽：厚重、宽肩、背刺。 */
-export function bruteGeometry(): THREE.BufferGeometry {
+export function runnerGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 2.2,
-    build: 1.45,
-    hunch: 0.4,
-    reach: -0.85,
-    claws: true,
-    spikes: true,
-    palette: { skin: 0xb08068, cloth: 0x6f4636, dark: 0x40281f, accent: 0x8a5540 },
-  });
+    height: 1.72, build: 0.82, hunch: 0.55, reach: -1.45, decayed: true, claws: true, seed: 23,
+    palette: { skin: 0xc9bd96, cloth: 0x8a7a55, dark: 0x5b4d36, accent: 0x9d8a5f, bone: 0xe0d8bf },
+  }, q);
 }
 
-/** 泰坦：巨大、猩红、犄角 + 利爪 + 背刺。 */
-export function titanGeometry(): THREE.BufferGeometry {
+export function screamerGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 2.5,
-    build: 1.7,
-    hunch: 0.3,
-    reach: -0.7,
-    horns: true,
-    claws: true,
-    spikes: true,
-    palette: { skin: 0xd6604c, cloth: 0x8c2f24, dark: 0x4b1512, accent: 0xb03a2c },
-  });
+    height: 2.0, build: 0.86, hunch: 0.2, reach: -0.5, horns: true, claws: true, decayed: true, seed: 37,
+    palette: { skin: 0xd08ea0, cloth: 0x7a3f52, dark: 0x4a2130, accent: 0x9c4f66, bone: 0xf0e2d6 },
+  }, q);
 }
 
-/** Boss：泰坦的放大加强版，剪影更夸张。 */
-export function bossGeometry(): THREE.BufferGeometry {
+export function bruteGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 2.9,
-    build: 1.95,
-    hunch: 0.22,
-    reach: -0.6,
-    horns: true,
-    claws: true,
-    spikes: true,
-    palette: { skin: 0xe8563c, cloth: 0x7a1c16, dark: 0x2e0b09, accent: 0xff7a3c },
-  });
+    height: 2.2, build: 1.45, hunch: 0.4, reach: -0.85, claws: true, spikes: true, decayed: true, seed: 53,
+    palette: { skin: 0xb08068, cloth: 0x6f4636, dark: 0x40281f, accent: 0x8a5540, bone: 0xe8ddc8 },
+  }, q);
 }
 
-/** 士兵：挺拔、头盔、背包、端枪。 */
-export function soldierGeometry(): THREE.BufferGeometry {
+export function titanGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 1.8,
-    build: 1.02,
-    hunch: 0.06,
-    reach: -0.28,
-    helmet: true,
-    backpack: true,
-    gun: true,
-    palette: { skin: 0xd9a684, cloth: 0x2f4d8f, dark: 0x1d2f5c, accent: 0x24407a },
-  });
+    height: 2.5, build: 1.7, hunch: 0.3, reach: -0.7, horns: true, claws: true, spikes: true, decayed: true, seed: 71,
+    palette: { skin: 0xd6604c, cloth: 0x8c2f24, dark: 0x4b1512, accent: 0xb03a2c, bone: 0xf2e6d2 },
+  }, q);
+}
+
+export function bossGeometry(q: BuildQuality): THREE.BufferGeometry {
+  return buildHumanoid({
+    height: 2.9, build: 1.95, hunch: 0.22, reach: -0.6, horns: true, claws: true, spikes: true, decayed: true, seed: 97,
+    palette: { skin: 0xe8563c, cloth: 0x7a1c16, dark: 0x2e0b09, accent: 0xff7a3c, bone: 0xffeede },
+  }, q);
+}
+
+export function soldierGeometry(q: BuildQuality): THREE.BufferGeometry {
+  return buildHumanoid({
+    height: 1.8, build: 1.02, hunch: 0.06, reach: -0.28, helmet: true, backpack: true, gun: true, seed: 5,
+    palette: { skin: 0xd9a684, cloth: 0x2f4d8f, dark: 0x1d2f5c, accent: 0x24407a, bone: 0xf0e6d8 },
+  }, q);
 }

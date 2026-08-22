@@ -105,7 +105,7 @@ export const PRESET = {
     detail: 0.32,
   }),
   /** 沥青路面。 */
-  asphalt: (color = 0x5a5c62): IndustrialOptions => ({
+  asphalt: (color = 0x74767c): IndustrialOptions => ({
     color,
     roughness: 0.96,
     metalness: 0.0,

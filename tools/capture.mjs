@@ -9,6 +9,7 @@ await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
 await page.waitForTimeout(1500);
 const save = process.argv[3] ?? '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{"squad":8,"damage":8,"fireRate":6,"cannon":4,"armor":6,"weapon":2},"bestTime":{},"muted":true}';
 await page.evaluate((s) => localStorage.setItem('adgame.save.v1', s), save);
+if (process.env.QUALITY) await page.evaluate((q) => localStorage.setItem('adgame.quality', q), process.env.QUALITY);
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(1800);
 
@@ -21,6 +22,10 @@ for (const [level, cond, name] of JSON.parse(process.argv[2])) {
     d = await page.evaluate(() => window.__game.debug());
     if (d.simPhase !== 'running') break;
     if (eval(cond)) break;
+  }
+  if (process.env.INSPECT) {
+    const [t, d, h, y] = process.env.INSPECT.split(',');
+    await page.evaluate(([t, d, h, y]) => window.__game.inspect(t, +d, +h, +y), [t, d, h, y]);
   }
   await page.waitForTimeout(800);
   console.log(name, JSON.stringify(await page.evaluate(() => window.__game.debug())));

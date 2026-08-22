@@ -113,16 +113,19 @@ export function createLights(theme: SkyTheme, shadowMapSize: number): SceneLight
     sun.castShadow = true;
     sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
     const cam = sun.shadow.camera;
-    cam.near = 1;
-    cam.far = 190;
-    cam.left = -34;
-    cam.right = 34;
-    cam.top = 40;
-    cam.bottom = -26;
+    // 阴影相机只罩住"方阵 + 前方一段"这块真正要看的区域。
+    // 之前开到 68×66，1024 的贴图摊下来一个 texel 有 6.6 厘米，
+    // 路面在斜射阳光下整片自遮挡 —— 表现出来就是方阵周围一大块死黑。
+    cam.near = 20;
+    cam.far = 150;
+    cam.left = -17;
+    cam.right = 17;
+    cam.top = 30;
+    cam.bottom = -20;
     cam.updateProjectionMatrix();
-    // 斜射的方向光很容易出条纹状自阴影，这两个值是压掉它的
-    sun.shadow.bias = -0.0006;
-    sun.shadow.normalBias = 0.035;
+    sun.shadow.bias = -0.0004;
+    // normalBias 要和 texel 的世界尺寸同量级才压得住自遮挡
+    sun.shadow.normalBias = (34 / shadowMapSize) * 2.5;
   }
 
   const hemi = new THREE.HemisphereLight(theme.horizon, theme.ambient, 0.2);

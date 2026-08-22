@@ -52,6 +52,11 @@ export class Game {
    * 用来在浏览器里直接跳到尸潮最密的那一段或者 Boss 战，
    * 不用干等 —— 也方便截图核对画面。
    */
+  /** 开发期调试：把镜头钉到某个目标近处看资产细节。 */
+  inspect(target: 'squad' | 'boss' | 'enemy' | null, dist = 4, height = 1.2, yaw = 0.6): void {
+    this.view.inspect = target ? { target, dist, height, yaw } : null;
+  }
+
   /** 开发期调试：直接回主菜单。 */
   debugMenu(): void {
     this.openMenu();
