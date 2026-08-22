@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { World } from '../../src/sim/World';
 import { CANNON, LEVELS_MAX_UPGRADES, type UpgradeId } from './fixtures';
 import type { GateSpec, WaveSpec } from '../../src/config/levels';
+import { LANE_SIGN } from '../../src/sim/lanes';
 
 /**
  * 难度曲线回归测试。
@@ -51,10 +52,11 @@ function play(levelId: number, upgrades: Record<UpgradeId, number>, seed = 3) {
   let t = 0;
   while (w.phase === 'running' && t < 240) {
     const next = w.gates.find((g) => !g.taken && g.z > w.squad.z);
-    let want = -6;
+    let want = LANE_SIGN.left * 6;
     if (next) {
       const n = w.squad.soldierCount;
-      want = scoreLane(next.left.gate, next.left.wave, n) >= scoreLane(next.right.gate, next.right.wave, n) ? -6 : 6;
+      const side = scoreLane(next.left.gate, next.left.wave, n) >= scoreLane(next.right.gate, next.right.wave, n) ? 'left' : 'right';
+      want = LANE_SIGN[side] * 6;
     }
     w.steer = Math.abs(want - w.squad.x) > 0.3 ? Math.sign(want - w.squad.x) : 0;
     w.step(dt);

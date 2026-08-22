@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../../src/sim/World';
 import type { UpgradeId } from '../../src/config/balance';
+import { LANE_SIGN } from '../../src/sim/lanes';
 
 const NO_UPGRADES: Record<UpgradeId, number> = { squad: 0, damage: 0, fireRate: 0, cannon: 0, armor: 0, weapon: 0 };
 
@@ -18,9 +19,9 @@ function simulate(levelId: number, steer: (w: World, t: number) => number, maxSe
   return { world: w, seconds: t };
 }
 
-/** 一直贴着某一侧走。 */
-const hug = (side: -1 | 1) => (w: World) => {
-  const target = side * 8;
+/** 一直贴着屏幕上的某一侧走。 */
+const hug = (side: 'left' | 'right') => (w: World) => {
+  const target = LANE_SIGN[side] * 8;
   return Math.sign(target - w.squad.x) * (Math.abs(target - w.squad.x) > 0.2 ? 1 : 0);
 };
 
@@ -35,7 +36,7 @@ describe('World', () => {
   });
 
   it('一局能在有限时间内分出胜负，不会卡死', () => {
-    const { world, seconds } = simulate(1, hug(-1));
+    const { world, seconds } = simulate(1, hug('left'));
     expect(world.phase).not.toBe('running');
     expect(seconds).toBeLessThan(400);
   });
@@ -44,9 +45,9 @@ describe('World', () => {
     const w = new World({ levelId: 1, upgrades: NO_UPGRADES, seed: 7 });
     const before = w.squad.soldierCount;
     const dt = 1 / 60;
-    // 贴左走，第一组门左边是 "+10 士兵"
+    // 贴屏幕左侧走，第一组门左边是 "+26 士兵"
     while (!w.gates[0]!.taken && w.phase === 'running') {
-      w.steer = -1;
+      w.steer = LANE_SIGN.left;
       w.step(dt);
       w.drainEvents();
     }
@@ -58,7 +59,7 @@ describe('World', () => {
     const w = new World({ levelId: 1, upgrades: NO_UPGRADES, seed: 7 });
     const dt = 1 / 60;
     while (!w.gates[0]!.taken && w.phase === 'running') {
-      w.steer = 1;
+      w.steer = LANE_SIGN.right;
       w.step(dt);
       w.drainEvents();
     }
@@ -74,7 +75,7 @@ describe('World', () => {
     let released = false;
     let t = 0;
     while (w.phase === 'running' && t < 300) {
-      w.steer = -1;
+      w.steer = LANE_SIGN.left;
       const z0 = w.squad.z;
       w.step(dt);
       w.drainEvents();
@@ -93,7 +94,7 @@ describe('World', () => {
       const dt = 1 / 60;
       let t = 0;
       while (w.phase === 'running' && t < 400) {
-        w.steer = -1;
+        w.steer = LANE_SIGN.left;
         w.step(dt);
         w.drainEvents();
         t += dt;

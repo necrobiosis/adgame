@@ -2,7 +2,7 @@ import { ENEMY_STATS, MELEE, ROAD_HALF, SCREAMER_AURA, SOLDIER, type EnemyKind }
 import type { Rng } from '../core/Rng';
 import type { WaveSpec } from '../config/levels';
 import type { Squad } from './Squad';
-import type { Enemy, SimEvent } from './types';
+import type { BlockObstacle, Enemy, SimEvent } from './types';
 
 /** 尸体倒地动画时长。 */
 const DYING_TIME = 0.55;
@@ -20,6 +20,8 @@ export class EnemyPool {
 
   /** 复用的排序缓冲，避免每帧分配。 */
   private readonly contactBuf: Enemy[] = [];
+  /** 需要互相推开的大型敌人。 */
+  private readonly bigBuf: Enemy[] = [];
 
   constructor(private readonly rng: Rng) {}
 
@@ -34,12 +36,17 @@ export class EnemyPool {
     const depth = wave.depth ?? 22;
     const baseZ = atZ + ahead;
     for (const g of wave.groups) {
+      const big = ENEMY_STATS[g.kind].scale >= 1.5;
       for (let i = 0; i < g.count; i++) {
         const t = g.count > 1 ? i / (g.count - 1) : 0.5;
         // 沿纵深分层铺开，横向铺满整条路 —— 还原广告里"尸潮填满路面"的密度
         const z = baseZ + t * depth + this.rng.range(-1.6, 1.6);
         const spread = ROAD_HALF - 0.8;
-        const x = this.rng.range(-spread, spread) * 0.5 + this.rng.range(-spread, spread) * 0.5 + squadX * 0.15;
+        // 杂兵用中心密、边缘疏的分布堆出人潮感；
+        // 精英只有几只，必须均匀铺开，否则会全叠在路中央变成一团
+        const x = big
+          ? (g.count > 1 ? -spread + ((i + 0.5) / g.count) * spread * 2 : 0) + this.rng.range(-1, 1)
+          : this.rng.range(-spread, spread) * 0.5 + this.rng.range(-spread, spread) * 0.5 + squadX * 0.15;
         this.spawn(g.kind, clamp(x, -spread, spread), z);
       }
     }
@@ -59,6 +66,7 @@ export class EnemyPool {
       phase: this.rng.range(0, Math.PI * 2),
       scale: (opts?.scale ?? st.scale) * this.sizeScale,
       attackCd: this.rng.range(0, 0.6),
+      laneOffset: this.rng.range(-1, 1),
       flash: 0,
       speedMul: 1,
       damageMul: 1,
@@ -69,7 +77,7 @@ export class EnemyPool {
     return e;
   }
 
-  /** 造成伤害。返回真实扣血量；击杀时推入事件。 */
+  /** 造成伤害。返回这一击拿到的金币（没击杀就是 0）。 */
   damage(e: Enemy, amount: number, out: SimEvent[]): number {
     if (!e.alive) return 0;
     const dealt = Math.min(e.hp, amount);
@@ -83,11 +91,12 @@ export class EnemyPool {
       e.alive = false;
       e.dying = DYING_TIME;
       out.push({ type: 'kill', x: e.x, y: 0.9 * e.scale, z: e.z, kind: e.kind, amount: st.gold });
+      return st.gold;
     }
-    return dealt;
+    return 0;
   }
 
-  update(dt: number, squad: Squad, out: SimEvent[]): void {
+  update(dt: number, squad: Squad, barrier: BlockObstacle | null, out: SimEvent[]): void {
     // 嚎叫者光环：先收集，再套用
     const screamers: Enemy[] = [];
     for (const e of this.list) {
@@ -126,6 +135,16 @@ export class EnemyPool {
       const st = ENEMY_STATS[e.kind];
       const speed = st.speed * e.speedMul;
 
+      // 前面横着一堵装甲墙：不能穿过去，先挤到路肩的缝隙里再绕进来
+      if (barrier && e.z > barrier.z - 1.2 && e.x > barrier.x0 - 0.5 && e.x < barrier.x1 + 0.5) {
+        e.z = Math.max(e.z - speed * 0.25 * dt, barrier.z + 1.2);
+        const aim = e.x >= 0 ? barrier.x1 + 1.2 : barrier.x0 - 1.2;
+        const d = aim - e.x;
+        e.x += Math.sign(d) * Math.min(Math.abs(d), speed * 1.7 * dt);
+        e.phase += dt * 5;
+        continue;
+      }
+
       // 已经压到接触面上的，交给下面的排队逻辑统一处理
       const reach = frontZ + e.scale * 0.55;
       if (e.z <= reach + MELEE.queueDepth * 0.5 && Math.abs(e.x - squad.x) <= halfW + e.scale) {
@@ -135,14 +154,17 @@ export class EnemyPool {
       }
 
       e.z -= speed * dt;
-      // 越靠近方阵，横向收拢得越急，让尸潮汇成一股压过来
-      const dx = squad.x - e.x;
-      const urgency = e.z - squad.z < 22 ? 1.1 : 0.4;
+      // 朝"方阵中心 + 自己那份横向偏移"收拢：整体压向方阵，但保持铺开的宽度
+      const spread = Math.max(4.5, squad.halfWidth + 2.5);
+      const aimX = clamp(squad.x + e.laneOffset * spread, -ROAD_HALF + 0.8, ROAD_HALF - 0.8);
+      const dx = aimX - e.x;
+      const urgency = e.z - squad.z < 24 ? 0.9 : 0.35;
       e.x += Math.sign(dx) * Math.min(Math.abs(dx), speed * urgency * dt);
       e.phase += dt * (3.2 + speed * 0.55);
     }
 
     this.resolveMelee(dt, squad, contact, out);
+    this.separateBig(dt);
     this.contactCount = contact.length;
 
     // 回收：播完倒地动画的尸体，以及被甩到方阵后面的漏网之鱼
@@ -203,6 +225,42 @@ export class EnemyPool {
           out.push({ type: 'soldierDown', x: target.x, y: 0.9, z: target.z });
         }
       }
+    }
+  }
+
+  /**
+   * 大型敌人之间互相推开。
+   * 巨怪体积大，如果任由它们朝同一个点收拢，几只泰坦会完全重叠成一团
+   * 认不出形状。数量少（个位数到几十），O(n²) 完全够用。
+   */
+  private separateBig(dt: number): void {
+    const big = this.bigBuf;
+    big.length = 0;
+    for (const e of this.list) {
+      if (e.alive && !e.scripted && e.scale >= 1.5) big.push(e);
+      if (big.length >= 80) break;
+    }
+    for (let i = 0; i < big.length; i++) {
+      const a = big[i]!;
+      for (let j = i + 1; j < big.length; j++) {
+        const b = big[j]!;
+        const want = (a.scale + b.scale) * 0.62;
+        let dx = b.x - a.x;
+        let dz = b.z - a.z;
+        let d = Math.hypot(dx, dz);
+        if (d >= want) continue;
+        if (d < 0.001) {
+          dx = (a.id % 2 === 0 ? 1 : -1) * 0.05;
+          dz = 0;
+          d = 0.05;
+        }
+        const push = ((want - d) / d) * 0.5 * Math.min(1, dt * 9);
+        a.x -= dx * push;
+        a.z -= dz * push;
+        b.x += dx * push;
+        b.z += dz * push;
+      }
+      a.x = clamp(a.x, -ROAD_HALF + 0.8, ROAD_HALF - 0.8);
     }
   }
 

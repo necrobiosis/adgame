@@ -1,5 +1,6 @@
 import {
   ADVANCE_SPEED,
+  BLOCK,
   BOSS,
   MELEE,
   ROAD_HALF,
@@ -15,6 +16,7 @@ import { Combat } from './Combat';
 import { EnemyPool } from './Enemies';
 import { applyGate } from './Gates';
 import { Squad } from './Squad';
+import { LANE_SIGN, sideAtX } from './lanes';
 import type { BlockObstacle, GateGroup, Phase, SimEvent } from './types';
 
 /** 门本身的纵深（两片墙之间）。 */
@@ -108,10 +110,13 @@ export class World {
           this.pendingWaves.push({ wave: beat.wave, z });
           break;
         case 'block': {
+          // span 说的是玩家看到的哪半边路，换算成世界 x
           const [x0, x1] =
-            beat.span === 'full' ? [-ROAD_HALF, ROAD_HALF]
-            : beat.span === 'left' ? [-ROAD_HALF, 0]
-            : [0, ROAD_HALF];
+            beat.span === 'full'
+              ? [-BLOCK.fullSpanHalfWidth, BLOCK.fullSpanHalfWidth]
+              : LANE_SIGN[beat.span] > 0
+                ? [0, ROAD_HALF]
+                : [-ROAD_HALF, 0];
           this.blocks.push({
             id: this.nextId++,
             z,
@@ -141,6 +146,15 @@ export class World {
     if (this.bossTriggered) return 1;
     const goal = this.bossArenaTargetZ > 0 ? this.bossArenaTargetZ - BOSS_TRIGGER_AHEAD : this.totalLength;
     return Math.max(0, Math.min(1, this.squad.z / Math.max(1, goal)));
+  }
+
+  /**
+   * 挡在方阵和尸潮之间的那堵墙。僵尸必须从两侧路肩绕过来，
+   * 不能直接穿过去。
+   */
+  get barrier(): BlockObstacle | null {
+    const b = this.activeBlock;
+    return b && b.alive && b.span === 'full' && b.z > this.squad.z - 2 ? b : null;
   }
 
   /** 当前挡在前面的方块（渲染层与战斗层共用）。 */
@@ -173,8 +187,10 @@ export class World {
     // 半宽方块把方阵挤到另一侧
     const blk = this.activeBlock;
     if (blk && blk.span !== 'full' && Math.abs(blk.z - this.squad.z) < 7) {
-      if (blk.span === 'left') x = Math.max(x, blk.x1 + this.squad.halfWidth * 0.7 + 0.6);
-      else x = Math.min(x, blk.x0 - this.squad.halfWidth * 0.7 - 0.6);
+      // 按方块实际占住的世界 x 区间来挤，不要依赖 left/right 这个屏幕侧的标签
+      const gap = this.squad.halfWidth * 0.7 + 0.6;
+      if (blk.x0 <= -ROAD_HALF + 0.01) x = Math.max(x, blk.x1 + gap);
+      else x = Math.min(x, blk.x0 - gap);
       x = clamp(x, -(ROAD_HALF - margin), ROAD_HALF - margin);
     }
     this.squad.x = x;
@@ -207,13 +223,11 @@ export class World {
     }
 
     // ── 战斗 ────────────────────────────────────────────────
-    const killsBefore = this.stats.kills;
     this.boss.update(dt, this.squad, this.enemies, out);
     const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, out);
-    this.enemies.update(dt, this.squad, out);
+    this.enemies.update(dt, this.squad, this.barrier, out);
 
     for (const ev of out) if (ev.type === 'kill') this.stats.kills++;
-    void killsBefore;
     this.gold += gold;
     this.stats.goldEarned += gold;
     this.stats.peakSoldiers = Math.max(this.stats.peakSoldiers, this.squad.soldierCount);
@@ -236,7 +250,7 @@ export class World {
     for (const g of this.gates) {
       if (g.taken) continue;
       if (prevZ < g.z && this.squad.z >= g.z) {
-        const side = this.squad.x < 0 ? 'left' : 'right';
+        const side = sideAtX(this.squad.x);
         const lane = side === 'left' ? g.left : g.right;
         g.taken = true;
         g.chosen = side;

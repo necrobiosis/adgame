@@ -140,12 +140,12 @@ export interface EnemyStats {
 }
 
 export const ENEMY_STATS: Record<EnemyKind, EnemyStats> = {
-  walker:   { kind: 'walker',   label: '尸群',   hp: 12,   speed: 3.2,  damage: 4,  scale: 1.0,  gold: 1,   tint: 0x9aa78c, showHealthBar: false, sweep: 1, scaleExp: 1.0 },
-  runner:   { kind: 'runner',   label: '疾行者', hp: 20,   speed: 6.6,  damage: 6,  scale: 0.95, gold: 2,   tint: 0xb4a06a, showHealthBar: false, sweep: 1, scaleExp: 1.0 },
-  screamer: { kind: 'screamer', label: '嚎叫者', hp: 260,  speed: 3.6,  damage: 10, scale: 1.4,  gold: 8,   tint: 0xc46a86, showHealthBar: true,  sweep: 1, scaleExp: 0.8 },
-  brute:    { kind: 'brute',    label: '蛮兽',   hp: 1500, speed: 2.7,  damage: 30, scale: 2.4,  gold: 30,  tint: 0x8f5a4a, showHealthBar: true,  sweep: 3, scaleExp: 0.55 },
-  titan:    { kind: 'titan',    label: '泰坦',   hp: 5200, speed: 2.2,  damage: 52, scale: 3.6,  gold: 70,  tint: 0xc03a2c, showHealthBar: true,  sweep: 5, scaleExp: 0.45 },
-  boss:     { kind: 'boss',     label: '深渊领主', hp: 2700, speed: 2.6, damage: 68, scale: 6.4, gold: 400, tint: 0xd1372a, showHealthBar: true,  sweep: 8, scaleExp: 0 },
+  walker:   { kind: 'walker',   label: '尸群',   hp: 12,   speed: 3.2,  damage: 4,  scale: 1.0,  gold: 1,   tint: 0xb6c0a6, showHealthBar: false, sweep: 1, scaleExp: 1.0 },
+  runner:   { kind: 'runner',   label: '疾行者', hp: 20,   speed: 6.6,  damage: 6,  scale: 0.95, gold: 2,   tint: 0xc6b489, showHealthBar: false, sweep: 1, scaleExp: 1.0 },
+  screamer: { kind: 'screamer', label: '嚎叫者', hp: 260,  speed: 3.6,  damage: 10, scale: 1.25,  gold: 8,   tint: 0xc46a86, showHealthBar: true,  sweep: 1, scaleExp: 0.8 },
+  brute:    { kind: 'brute',    label: '蛮兽',   hp: 1500, speed: 2.7,  damage: 30, scale: 1.6,  gold: 30,  tint: 0x8f5a4a, showHealthBar: true,  sweep: 3, scaleExp: 0.55 },
+  titan:    { kind: 'titan',    label: '泰坦',   hp: 5200, speed: 2.2,  damage: 52, scale: 2.1,  gold: 70,  tint: 0xc03a2c, showHealthBar: true,  sweep: 5, scaleExp: 0.45 },
+  boss:     { kind: 'boss',     label: '深渊领主', hp: 2700, speed: 2.6, damage: 68, scale: 3.4, gold: 400, tint: 0xd1372a, showHealthBar: true,  sweep: 8, scaleExp: 0 },
 };
 
 /** 嚎叫者光环：半径内的僵尸速度与伤害倍率。 */
@@ -177,6 +177,12 @@ export const BLOCK = {
   /** 打掉方块每 100 点血给多少金币。 */
   goldPerHundredHp: 0.9,
   height: 4.2,
+  /**
+   * "全宽"方块其实留了两条路肩缝。方阵挤不过去（所以必须停下来硬啃），
+   * 但僵尸能从缝里挤进来 —— 这样才不会出现"尸潮直接穿模走过钢块"的画面，
+   * 同时保住了"一边啃方块一边被尸潮压上来"的压迫感。
+   */
+  fullSpanHalfWidth: 7.2,
   /**
    * 方块是装甲的，必须凑近才打得动。
    * 没有这个限制的话，方阵会在三十米外就把它拆了，广告里那个

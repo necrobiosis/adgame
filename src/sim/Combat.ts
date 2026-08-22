@@ -108,9 +108,7 @@ export class Combat {
       const target = targets[idx % targets.length]!;
       if (!target.alive) continue;
       u.cooldown = interval;
-      const before = target.alive;
-      pool.damage(target, dmg * weapon.pellets * rankMul, out);
-      if (before && !target.alive) goldEarned += killGold(out);
+      goldEarned += pool.damage(target, dmg * weapon.pellets * rankMul, out);
       out.push({
         type: 'shot',
         x: u.x, y: MUZZLE_Y, z: u.z,
@@ -140,9 +138,7 @@ export class Combat {
         const d2 = dx * dx + dz * dz;
         if (d2 > r2) continue;
         const falloff = 1 - (1 - CANNON.splashEdge) * Math.sqrt(d2 / r2);
-        const alive = e.alive;
-        pool.damage(e, splashDmg * falloff, out);
-        if (alive && !e.alive) gold += killGold(out);
+        gold += pool.damage(e, splashDmg * falloff, out);
       }
       if (block && block.alive && Math.abs(block.z - s.tz) < CANNON.splashRadius && s.tx >= block.x0 - 2 && s.tx <= block.x1 + 2) {
         block.hp -= splashDmg;
@@ -163,16 +159,6 @@ export class Combat {
   clear(): void {
     this.shells.length = 0;
   }
-}
-
-/** 从刚推入的事件里取回击杀金币（damage() 已经写进 kill 事件的 amount）。 */
-function killGold(out: SimEvent[]): number {
-  for (let i = out.length - 1; i >= 0; i--) {
-    const ev = out[i]!;
-    if (ev.type === 'kill') return ev.amount ?? 0;
-    if (ev.type !== 'hitBig') break;
-  }
-  return 0;
 }
 
 /** 大炮瞄准：优先砸最密集的一团，其次砸血最厚的目标。 */

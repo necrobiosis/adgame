@@ -37,6 +37,12 @@ export interface Enemy {
   attackCd: number;
   /** 受击闪白剩余秒数。 */
   flash: number;
+  /**
+   * 出生时定下的横向站位偏好（-1..1）。
+   * 所有僵尸如果都径直朝方阵中心收拢，就会挤成一条单列纵队；
+   * 给每只一个固定的偏移，尸潮才会像广告里那样铺满整个路面压过来。
+   */
+  laneOffset: number;
   /** 被嚎叫者加成的倍率，每帧重算。 */
   speedMul: number;
   damageMul: number;

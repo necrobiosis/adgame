@@ -34,8 +34,6 @@ export class BossController {
   private slamCd = 3.5;
   private summonCd = 6;
   private chargeCd = 8;
-  private chargeFromZ = 0;
-  private homeZ = 0;
 
   constructor(private readonly rng: Rng) {}
 
@@ -49,7 +47,6 @@ export class BossController {
 
   spawn(pool: EnemyPool, arenaZ: number, hp: number, scale: number, name: string, out: SimEvent[]): void {
     this.name = name;
-    this.homeZ = arenaZ;
     this.enemy = pool.spawn('boss', 0, arenaZ + 16, {
       hp,
       scale: ENEMY_STATS.boss.scale * scale,
@@ -161,7 +158,6 @@ export class BossController {
         }
         if (this.timer <= 0) {
           this.telegraph = null;
-          this.chargeFromZ = b.z;
           this.state = 'charging';
         }
         break;
@@ -190,8 +186,6 @@ export class BossController {
     if (this.state !== 'charging' && this.state !== 'chargeReturn') {
       b.z = Math.max(squad.z + 8, b.z);
     }
-    void this.chargeFromZ;
-    void this.homeZ;
   }
 
   private summonAdds(pool: EnemyPool, squad: Squad, _out: SimEvent[], count: number): void {
