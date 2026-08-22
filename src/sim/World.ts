@@ -1,0 +1,282 @@
+import {
+  ADVANCE_SPEED,
+  BOSS,
+  MELEE,
+  ROAD_HALF,
+  STRAFE_SPEED,
+  UPGRADE_EFFECT,
+  START,
+  type UpgradeId,
+} from '../config/balance';
+import { getLevel, type Beat, type LevelDef, type WaveSpec } from '../config/levels';
+import { Rng } from '../core/Rng';
+import { BossController } from './Boss';
+import { Combat } from './Combat';
+import { EnemyPool } from './Enemies';
+import { applyGate } from './Gates';
+import { Squad } from './Squad';
+import type { BlockObstacle, GateGroup, Phase, SimEvent } from './types';
+
+/** 门本身的纵深（两片墙之间）。 */
+const GATE_DEPTH = 5;
+/** 遇到全宽方块时方阵停在它前面多远。 */
+const BLOCK_STOP_GAP = 5.5;
+/** 距离 Boss 竞技场多远触发 Boss。 */
+const BOSS_TRIGGER_AHEAD = 46;
+
+export interface RunOptions {
+  levelId: number;
+  upgrades: Readonly<Record<UpgradeId, number>>;
+  seed?: number;
+}
+
+export interface RunStats {
+  kills: number;
+  goldEarned: number;
+  peakSoldiers: number;
+  gatesTaken: number;
+  elapsed: number;
+}
+
+/**
+ * 一整局的模拟：赛道、方阵推进、门、方块、尸潮、Boss。
+ * 这一层完全不依赖 three.js，可以脱离浏览器单测。
+ */
+export class World {
+  readonly level: LevelDef;
+  readonly squad: Squad;
+  readonly enemies: EnemyPool;
+  readonly combat = new Combat();
+  readonly boss: BossController;
+
+  readonly gates: GateGroup[] = [];
+  readonly blocks: BlockObstacle[] = [];
+
+  /** 赛道总长（进度条用）。 */
+  totalLength = 0;
+  /** Boss 竞技场所在 z。 */
+  arenaZ = 0;
+
+  phase: Phase = 'running';
+  gold = 0;
+  stats: RunStats = { kills: 0, goldEarned: 0, peakSoldiers: 0, gatesTaken: 0, elapsed: 0 };
+
+  /** 玩家横向输入意图 [-1, 1]。 */
+  steer = 0;
+
+  private readonly rng: Rng;
+  private readonly events: SimEvent[] = [];
+  private pendingWaves: { wave: WaveSpec; z: number }[] = [];
+  private bossTriggered = false;
+  private bossArenaTargetZ = 0;
+  private nextId = 1;
+
+  constructor(opts: RunOptions) {
+    this.level = getLevel(opts.levelId);
+    this.rng = new Rng(opts.seed ?? 0x51ed5eed);
+    this.enemies = new EnemyPool(this.rng);
+    this.boss = new BossController(this.rng);
+
+    const up = opts.upgrades;
+    this.squad = new Squad({
+      soldiers: START.soldiers + (up.squad ?? 0) * UPGRADE_EFFECT.squadPerLevel,
+      cannons: START.cannons + (up.cannon ?? 0),
+      weaponLevel: START.weaponLevel + (up.weapon ?? 0),
+      damageMul: 1 + (up.damage ?? 0) * UPGRADE_EFFECT.damagePerLevel,
+      fireRateMul: 1 + (up.fireRate ?? 0) * UPGRADE_EFFECT.fireRatePerLevel,
+      hpMul: 1 + (up.armor ?? 0) * UPGRADE_EFFECT.armorPerLevel,
+    }, this.rng);
+
+    this.buildTrack();
+    this.squad.layout();
+    this.stats.peakSoldiers = this.squad.soldierCount;
+  }
+
+  /** 把关卡的 beats 铺成绝对 z 坐标。 */
+  private buildTrack(): void {
+    let z = 0;
+    for (const beat of this.level.beats as readonly Beat[]) {
+      switch (beat.t) {
+        case 'run':
+          z += beat.len;
+          break;
+        case 'choice':
+          this.gates.push({ id: this.nextId++, z, left: beat.left, right: beat.right, taken: false, chosen: null });
+          z += GATE_DEPTH;
+          break;
+        case 'wave':
+          this.pendingWaves.push({ wave: beat.wave, z });
+          break;
+        case 'block': {
+          const [x0, x1] =
+            beat.span === 'full' ? [-ROAD_HALF, ROAD_HALF]
+            : beat.span === 'left' ? [-ROAD_HALF, 0]
+            : [0, ROAD_HALF];
+          this.blocks.push({
+            id: this.nextId++,
+            z,
+            span: beat.span,
+            hp: beat.hp,
+            maxHp: beat.hp,
+            alive: true,
+            flash: 0,
+            x0,
+            x1,
+          });
+          z += 12;
+          break;
+        }
+        case 'boss':
+          this.arenaZ = z + 24;
+          z = this.arenaZ;
+          break;
+      }
+    }
+    this.totalLength = Math.max(1, z);
+    this.bossArenaTargetZ = this.arenaZ - BOSS.standoff - 6;
+  }
+
+  get progress(): number {
+    // Boss 一出场就把进度条推满，剩下的战斗用 Boss 血条表达
+    if (this.bossTriggered) return 1;
+    const goal = this.bossArenaTargetZ > 0 ? this.bossArenaTargetZ - BOSS_TRIGGER_AHEAD : this.totalLength;
+    return Math.max(0, Math.min(1, this.squad.z / Math.max(1, goal)));
+  }
+
+  /** 当前挡在前面的方块（渲染层与战斗层共用）。 */
+  get activeBlock(): BlockObstacle | null {
+    let best: BlockObstacle | null = null;
+    for (const b of this.blocks) {
+      if (!b.alive) continue;
+      if (b.z < this.squad.z - 4) continue;
+      if (!best || b.z < best.z) best = b;
+    }
+    return best;
+  }
+
+  drainEvents(): SimEvent[] {
+    const copy = this.events.slice();
+    this.events.length = 0;
+    return copy;
+  }
+
+  step(dt: number): void {
+    if (this.phase !== 'running') return;
+    this.stats.elapsed += dt;
+    const out = this.events;
+    const prevZ = this.squad.z;
+
+    // ── 横向移动 ────────────────────────────────────────────
+    const margin = Math.min(ROAD_HALF - 0.6, this.squad.halfWidth + 0.4);
+    let x = this.squad.x + this.steer * STRAFE_SPEED * dt;
+    x = clamp(x, -(ROAD_HALF - margin), ROAD_HALF - margin);
+    // 半宽方块把方阵挤到另一侧
+    const blk = this.activeBlock;
+    if (blk && blk.span !== 'full' && Math.abs(blk.z - this.squad.z) < 7) {
+      if (blk.span === 'left') x = Math.max(x, blk.x1 + this.squad.halfWidth * 0.7 + 0.6);
+      else x = Math.min(x, blk.x0 - this.squad.halfWidth * 0.7 - 0.6);
+      x = clamp(x, -(ROAD_HALF - margin), ROAD_HALF - margin);
+    }
+    this.squad.x = x;
+
+    // ── 前进 ────────────────────────────────────────────────
+    let canAdvance = true;
+    if (blk && blk.span === 'full' && this.squad.z >= blk.z - BLOCK_STOP_GAP) canAdvance = false;
+    if (this.bossTriggered && this.squad.z >= this.bossArenaTargetZ) canAdvance = false;
+    if (canAdvance) {
+      // 压在接触面上的僵尸会把方阵顶住 —— 尸潮本身就是一堵会推回来的墙
+      const drag = Math.max(
+        MELEE.minAdvanceFactor,
+        1 / (1 + this.enemies.contactCount * MELEE.advanceDrag),
+      );
+      this.squad.z += ADVANCE_SPEED * drag * dt;
+      if (this.bossTriggered) this.squad.z = Math.min(this.squad.z, this.bossArenaTargetZ);
+    }
+    this.squad.layout();
+
+    // ── 触发器 ──────────────────────────────────────────────
+    this.checkGates(prevZ, out);
+    this.firePendingWaves();
+    if (!this.bossTriggered && this.squad.z >= this.arenaZ - BOSS_TRIGGER_AHEAD) {
+      this.bossTriggered = true;
+      this.enemies.hpScale = this.level.enemyHpScale;
+      const beat = this.level.beats.find((b) => b.t === 'boss');
+      if (beat && beat.t === 'boss') {
+        this.boss.spawn(this.enemies, this.arenaZ, beat.hp, beat.scale, beat.name, out);
+      }
+    }
+
+    // ── 战斗 ────────────────────────────────────────────────
+    const killsBefore = this.stats.kills;
+    this.boss.update(dt, this.squad, this.enemies, out);
+    const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, out);
+    this.enemies.update(dt, this.squad, out);
+
+    for (const ev of out) if (ev.type === 'kill') this.stats.kills++;
+    void killsBefore;
+    this.gold += gold;
+    this.stats.goldEarned += gold;
+    this.stats.peakSoldiers = Math.max(this.stats.peakSoldiers, this.squad.soldierCount);
+
+    for (const b of this.blocks) if (b.flash > 0) b.flash = Math.max(0, b.flash - dt);
+
+    // ── 胜负 ────────────────────────────────────────────────
+    if (this.squad.aliveCount <= 0) {
+      this.phase = 'lost';
+      out.push({ type: 'lose' });
+    } else if (this.bossTriggered && this.boss.enemy && !this.boss.enemy.alive) {
+      this.phase = 'won';
+      this.gold += this.level.clearGold;
+      this.stats.goldEarned += this.level.clearGold;
+      out.push({ type: 'win', amount: this.level.clearGold });
+    }
+  }
+
+  private checkGates(prevZ: number, out: SimEvent[]): void {
+    for (const g of this.gates) {
+      if (g.taken) continue;
+      if (prevZ < g.z && this.squad.z >= g.z) {
+        const side = this.squad.x < 0 ? 'left' : 'right';
+        const lane = side === 'left' ? g.left : g.right;
+        g.taken = true;
+        g.chosen = side;
+        this.stats.gatesTaken++;
+        const res = applyGate(this.squad, lane.gate);
+        this.gold += res.gold;
+        this.stats.goldEarned += res.gold;
+        this.squad.layout();
+        out.push({ type: 'gate', side, gate: lane.gate, text: res.text, x: this.squad.x, z: g.z });
+        // 选了哪条车道，就迎接哪种怪
+        this.pendingWaves.push({ wave: lane.wave, z: this.squad.z });
+      }
+    }
+  }
+
+  /**
+   * 敌人强度在关卡内部随进度爬升，而不是整关一个固定倍率。
+   * 这样每关开局都能用 12 个起始士兵打得动，越往后越硬 —— 难度曲线和
+   * 玩家自己的滚雪球速度对齐。
+   */
+  private currentHpScale(): number {
+    const t = Math.pow(Math.max(0, Math.min(1, this.squad.z / Math.max(1, this.arenaZ))), 0.85);
+    return 1 + (this.level.enemyHpScale - 1) * t;
+  }
+
+  private firePendingWaves(): void {
+    if (this.pendingWaves.length === 0) return;
+    const remain: { wave: WaveSpec; z: number }[] = [];
+    for (const p of this.pendingWaves) {
+      if (this.squad.z >= p.z) {
+        this.enemies.hpScale = this.currentHpScale();
+        this.enemies.spawnWave(p.wave, this.squad.z, this.squad.x);
+      } else {
+        remain.push(p);
+      }
+    }
+    this.pendingWaves = remain;
+  }
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
+}

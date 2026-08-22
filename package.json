@@ -1,0 +1,23 @@
+{
+  "name": "adgame",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "末日生存：把广告里的假游戏做成真的",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "three": "^0.185.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0"
+  }
+}
