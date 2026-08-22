@@ -171,9 +171,11 @@ export class ChaseCamera {
     this.zoom += ((bossActive ? 1 : 0) - this.zoom) * Math.min(1, dt * 1.2);
     // 方阵越厚，镜头就要往后往上让 —— 否则几百人的后排会直接跑到镜头背后
     this.depth += (squadDepth - this.depth) * Math.min(1, dt * 2.2);
-    const height = 12 + this.zoom * 3.4 + this.depth * 0.44;
-    const back = 18 + this.zoom * 5.5 + this.depth * 0.98;
-    const ahead = 28 + this.zoom * 6 + this.depth * 0.35;
+    // Boss 体型从 3.4 提到 4.4（约 +30%），拉远量跟着放大同一个比例，
+    // 否则变大的 Boss 会在竖屏画面里顶到镜头
+    const height = 12 + this.zoom * 4.4 + this.depth * 0.44;
+    const back = 18 + this.zoom * 7.2 + this.depth * 0.98;
+    const ahead = 28 + this.zoom * 7.8 + this.depth * 0.35;
 
     const tx = squadX * 0.42;
     const k = Math.min(1, dt * 4.5);

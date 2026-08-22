@@ -24,6 +24,7 @@ import { CrowdBatch } from './units/CrowdRenderer';
 import { PRESET, industrial } from './mat/pbr';
 import { ensureSurf } from './mat/triplanar';
 import { createCrowdMaterial, type CrowdMaterialSet } from './units/CrowdMaterial';
+import { ENEMY_JITTER, SOLDIER_JITTER, WHITE, jitterTint } from './units/colorVariation';
 import {
   bossGeometry,
   bruteGeometry,
@@ -153,9 +154,13 @@ export class GameView {
     const crowdShadows = this.r.quality.crowdShadows && this.r.quality.shadowMap > 0;
     for (const kind of Object.keys(geos) as EnemyKind[]) {
       const geo = geos[kind](q);
+      // Boss/泰坦身上叠一层熔纹自发光——复用已经烘进顶点的磨损数据，让炭黑的
+      // 甲壳在棱线处渗出橙红熔光，而不是靠底色本身撑"看起来很凶"
       const set = kind === 'boss'
-        ? createCrowdMaterial({ emissive: 0x2a0603, roughness: 0.66, metalness: 0.12 })
-        : createCrowdMaterial();
+        ? createCrowdMaterial({ emissive: 0x1a0402, roughness: 0.6, metalness: 0.15, crackGlow: true, crackColor: 0xff5a1a, crackStrength: 1.7 })
+        : kind === 'titan'
+          ? createCrowdMaterial({ emissive: 0x0d0201, roughness: 0.68, metalness: 0.1, crackGlow: true, crackColor: 0xe8481f, crackStrength: 1.1 })
+          : createCrowdMaterial();
       set.setPivots(geometryPivots(geo));
       this.matSets.push(set);
       const batch = new CrowdBatch(geo, set.material, CROWD_CAPACITY[kind], set.depthMaterial);
@@ -326,6 +331,14 @@ export class GameView {
     this.handleEvents(events, world);
 
     this.tracers.update(dt);
+    // 子弹这一帧刚好飞抵目标的，在落点补一粒极小的火花——子弹是真的"打中"了
+    // 什么东西，而不是瞬间出现瞬间消失
+    for (const hit of this.tracers.impacts) {
+      this.sparks.burst(hit.x, hit.y, hit.z, {
+        count: 1, color: hit.color,
+        speed: [0.6, 1.8], size: [0.24, 0.42], life: [0.04, 0.08], grow: -1.8,
+      });
+    }
     this.sparks.update(dt);
     this.smoke.update(dt);
     this.gold.update(dt);
@@ -398,7 +411,7 @@ export class GameView {
       attacking ? 1 : 0,
       death,
       flashAmount(e),
-      this.tints.get(e.kind)!,
+      jitterTint(this.tints.get(e.kind)!, e.id, ENEMY_JITTER[e.kind]),
     );
     if (st.showHealthBar && e.alive && e.hp < e.maxHp) {
       this.bars.add(e.x, 1.95 * e.scale, e.z, e.hp / e.maxHp, 1.5 + e.scale * 0.35);
@@ -426,9 +439,9 @@ export class GameView {
       }
       if (this.soldiers.used >= this.r.quality.soldierInstances) continue;
       // 前几排整齐，越往后越有点自然的错落
-      const jitter = ((u.id * 2654435761) % 1000) / 1000 - 0.5;
+      const posJitter = ((u.id * 2654435761) % 1000) / 1000 - 0.5;
       this.soldiers.add(
-        u.x + jitter * 0.06, 0, u.z,
+        u.x + posJitter * 0.06, 0, u.z,
         0,
         1,
         u.id * 0.7,
@@ -436,6 +449,7 @@ export class GameView {
         threat ? 1 : 0,
         0,
         u.flash > 0 ? u.flash / 0.12 : 0,
+        jitterTint(WHITE, u.id, SOLDIER_JITTER),
       );
     }
     this.soldiers.end();

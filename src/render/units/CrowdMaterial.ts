@@ -112,6 +112,16 @@ export interface CrowdMaterialOptions extends SurfaceOptions {
   roughness?: number;
   metalness?: number;
   emissive?: number;
+  /**
+   * 熔纹发光：精英/Boss 专用。复用已经烘进 `aSurf.y` 的边缘凸度数据——凸起的
+   * 棱线（角、爪、背刺、盔甲接缝，本来就是磨损集中的地方）叠加一层脉动的
+   * 自发光，读起来像"皮肤裂开露出熔岩纹路"。不需要新顶点属性或新烘焙步骤。
+   */
+  crackGlow?: boolean;
+  /** 裂纹发光的颜色。 */
+  crackColor?: number;
+  /** 裂纹发光的强度。 */
+  crackStrength?: number;
 }
 
 export interface CrowdMaterialSet {
@@ -149,16 +159,31 @@ export function createCrowdMaterial(opts: CrowdMaterialOptions = {}): CrowdMater
     emissive: new THREE.Color(opts.emissive ?? 0x000000),
   });
 
-  const key = `crowd-${seq++}`;
+  const crackUniforms = opts.crackGlow
+    ? {
+        uCrackColor: { value: new THREE.Color(opts.crackColor ?? 0xff5a1a) },
+        uCrackStrength: { value: opts.crackStrength ?? 1.4 },
+      }
+    : null;
+
+  const key = `crowd-${seq++}${opts.crackGlow ? '-crack' : ''}`;
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, shared, surf);
+    if (crackUniforms) Object.assign(shader.uniforms, crackUniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${VERT_PARS}`)
       .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>\n${VERT_BODY}\n  objectNormal = skinNormal;`)
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed = skinned;');
 
+    // 注意：每个 chunk 标记在模板里只出现一次，字符串替换一旦命中就"消耗"掉
+    // 那个标记——同一个 chunk 不能在两条独立的 .replace() 链里各命中一次，
+    // 后一条会找不到目标、静默不生效。裂纹发光需要的 uniform 声明必须和
+    // SURF_PARS_FRAG 一起塞进同一次对 `#include <common>` 的替换里。
+    const crackDecl = crackUniforms
+      ? '\nuniform vec3 uCrackColor;\nuniform float uCrackStrength;\nuniform float uTime;'
+      : '';
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${SURF_PARS_FRAG}\nvarying float vFlash;\nvarying vec3 vTint;`)
+      .replace('#include <common>', `#include <common>\n${SURF_PARS_FRAG}\nvarying float vFlash;\nvarying vec3 vTint;${crackDecl}`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${SURF_NORMAL_FRAG}`)
       .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>\n${SURF_FRAG}`)
       .replace(
@@ -172,6 +197,21 @@ export function createCrowdMaterial(opts: CrowdMaterialOptions = {}): CrowdMater
         diffuseColor.rgb = mix(diffuseColor.rgb, hit, vFlash * 0.45);
         `,
       );
+
+    if (crackUniforms) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <emissivemap_fragment>',
+        /* glsl */ `
+        #include <emissivemap_fragment>
+        {
+          // 只在磨损/凸起集中的棱线上发光：vSurf.y 越接近 1 越是棱角
+          float crack = pow(clamp(vSurf.y, 0.0, 1.0), 2.4);
+          float pulse = 0.65 + 0.35 * sin(uTime * 2.4 + vSurf.x * 6.0);
+          totalEmissiveRadiance += uCrackColor * crack * uCrackStrength * pulse;
+        }
+        `,
+      );
+    }
   };
   material.customProgramCacheKey = () => key;
 

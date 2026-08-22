@@ -465,14 +465,17 @@ export function bruteGeometry(q: BuildQuality): THREE.BufferGeometry {
 export function titanGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
     height: 2.5, build: 1.7, hunch: 0.3, reach: -0.7, horns: true, claws: true, spikes: true, decayed: true, seed: 71,
-    palette: { skin: 0xd6604c, cloth: 0x8c2f24, dark: 0x4b1512, accent: 0xb03a2c, bone: 0xf2e6d2 },
+    // 炭化甲壳压暗，把"亮"完全让给骨白的角爪——不再是红橙一个色系糊在一起
+    palette: { skin: 0x4a2e28, cloth: 0x241512, dark: 0x150a08, accent: 0xe8dcc4, bone: 0xf2e6d2 },
   }, q);
 }
 
 export function bossGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
     height: 2.9, build: 1.95, hunch: 0.22, reach: -0.6, horns: true, claws: true, spikes: true, decayed: true, seed: 97,
-    palette: { skin: 0xe8563c, cloth: 0x7a1c16, dark: 0x2e0b09, accent: 0xff7a3c, bone: 0xffeede },
+    // 近黑的炭化甲壳 + 骨白角爪的强对比；"亮色"不再来自皮肤本身，而是
+    // CrowdMaterial 里叠加在磨损棱线上的熔纹自发光（见 GameView 的 crackGlow）
+    palette: { skin: 0x231210, cloth: 0x160b09, dark: 0x0d0503, accent: 0xf5e8d0, bone: 0xffeede },
   }, q);
 }
 

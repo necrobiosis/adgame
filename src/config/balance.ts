@@ -145,7 +145,7 @@ export const ENEMY_STATS: Record<EnemyKind, EnemyStats> = {
   screamer: { kind: 'screamer', label: '嚎叫者', hp: 260,  speed: 3.6,  damage: 10, scale: 1.25,  gold: 8,   tint: 0xc46a86, showHealthBar: true,  sweep: 1, scaleExp: 0.8 },
   brute:    { kind: 'brute',    label: '蛮兽',   hp: 1500, speed: 2.7,  damage: 30, scale: 1.6,  gold: 30,  tint: 0x8f5a4a, showHealthBar: true,  sweep: 3, scaleExp: 0.55 },
   titan:    { kind: 'titan',    label: '泰坦',   hp: 5200, speed: 2.2,  damage: 52, scale: 2.1,  gold: 70,  tint: 0xc03a2c, showHealthBar: true,  sweep: 5, scaleExp: 0.45 },
-  boss:     { kind: 'boss',     label: '深渊领主', hp: 2700, speed: 2.6, damage: 68, scale: 3.4, gold: 400, tint: 0xd1372a, showHealthBar: true,  sweep: 8, scaleExp: 0 },
+  boss:     { kind: 'boss',     label: '深渊领主', hp: 2700, speed: 2.6, damage: 68, scale: 4.4, gold: 400, tint: 0xd1372a, showHealthBar: true,  sweep: 8, scaleExp: 0 },
 };
 
 /** 嚎叫者光环：半径内的僵尸速度与伤害倍率。 */
