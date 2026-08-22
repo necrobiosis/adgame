@@ -14,7 +14,8 @@ await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(1800);
 
 for (const [level, cond, name] of JSON.parse(process.argv[2])) {
-  await page.click(`[data-level="${level}"]`);
+  // 用 JS 直接点：高画质档下 SwiftShader 太慢，Playwright 的可操作性检查会卡住
+  await page.evaluate((lv) => document.querySelector(`[data-level="${lv}"]`).click(), level);
   await page.waitForTimeout(600);
   let d = null;
   for (let i = 0; i < 140; i++) {
@@ -29,7 +30,7 @@ for (const [level, cond, name] of JSON.parse(process.argv[2])) {
   }
   await page.waitForTimeout(800);
   console.log(name, JSON.stringify(await page.evaluate(() => window.__game.debug())));
-  await page.screenshot({ path: `${SHOTS}/${name}.png` });
+  await page.screenshot({ path: `${SHOTS}/${name}.png`, timeout: 120000 });
   await page.evaluate(() => window.__game.debugMenu());
   await page.waitForTimeout(400);
 }

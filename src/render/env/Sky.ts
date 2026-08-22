@@ -32,15 +32,22 @@ export const DAY: SkyTheme = {
   sunIntensity: 9,
 };
 
+/**
+ * 后两关的血色黄昏。
+ *
+ * 天空自己就是环境光源，所以这套配色只要一饱和，整个场景（桥、路面、士兵）
+ * 都会被染成一片橘红，什么都分不出来。地平线色往灰里压、天顶留住冷色、
+ * 环境光补一点中性蓝 —— 气氛还在，但物体各自的颜色读得出来。
+ */
 export const CRIMSON: SkyTheme = {
-  top: 0x2a1230,
-  horizon: 0xd9663a,
-  ground: 0x4a2a2a,
-  fog: 0xc06a44,
-  sun: 0xffcb92,
-  ambient: 0x9a5f6a,
-  sunDir: [-0.5, 0.3, 0.4],
-  sunIntensity: 7,
+  top: 0x3a2a48,
+  horizon: 0xc0785a,
+  ground: 0x5a4442,
+  fog: 0xa8806c,
+  sun: 0xffd6ad,
+  ambient: 0x7a8496,
+  sunDir: [-0.5, 0.34, 0.4],
+  sunIntensity: 6,
 };
 
 /** 天空球。太阳本体画在着色器里，这样 PMREM 之后金属上才有像样的高光。 */

@@ -300,3 +300,16 @@ html, body {
   font-size: 15px;
   z-index: 5;
 }
+
+.quality-btn {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  right: 52px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  display: grid; place-items: center;
+  z-index: 5;
+}

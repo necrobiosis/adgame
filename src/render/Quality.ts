@@ -42,15 +42,26 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
   high: {
     level: 'high',
     label: '高',
-    enemyInstances: 320,
+    enemyInstances: 280,
     radialSegments: 12,
     lengthDetail: 1,
     accessory: 2,
-    soldierInstances: 260,
+    soldierInstances: 220,
     cannonInstances: 32,
     shadowMap: 2048,
-    crowdShadows: true,
-    gtao: true,
+    // 杂兵不投影 —— 阴影通道要把所有投影体再画一遍，几百个高模杂兵直接让
+    // 整帧的几何量翻倍，而它们的影子在地面上本来就糊成一片。
+    // 精英、Boss、士兵、道具照常投影，画面里能读出来的影子一个不少。
+    crowdShadows: false,
+    /**
+     * 屏幕空间 AO 默认关掉。
+     *
+     * 它要把整个场景的深度和法线再画一遍 —— 在这个场景里就是又一个两百多万
+     * 三角形的通道，而遮蔽信息我们已经在建模期烘进每个资产的顶点里了
+     * （物理推导、无屏幕空间瑕疵），接触阴影则由真实阴影贴图负责。
+     * 代码路径留着，想开随时打开。
+     */
+    gtao: false,
     smaa: true,
     maxPixelRatio: 2,
     anisotropy: 8,
@@ -59,11 +70,11 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
   medium: {
     level: 'medium',
     label: '中',
-    enemyInstances: 220,
+    enemyInstances: 200,
     radialSegments: 9,
     lengthDetail: 0.7,
     accessory: 1,
-    soldierInstances: 190,
+    soldierInstances: 170,
     cannonInstances: 20,
     shadowMap: 1024,
     crowdShadows: false,

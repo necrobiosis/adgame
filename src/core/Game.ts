@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { LEVELS } from '../config/levels';
 import { GameView } from '../render/GameView';
 import { Renderer } from '../render/Renderer';
-import { guessQuality, storedQuality } from '../render/Quality';
+import { QUALITY, QualityProbe, guessQuality, storeQuality, storedQuality, type QualityLevel } from '../render/Quality';
 import { World } from '../sim/World';
 import type { SimEvent } from '../sim/types';
 import { loadSave, writeSave, type SaveData } from '../meta/Save';
@@ -81,6 +81,10 @@ export class Game {
   private resultDelay = 0;
   private pendingResult: { won: boolean; levelId: number; goldBefore: number } | null = null;
 
+  private readonly probe = new QualityProbe();
+  /** 玩家手动选过档位之后就不再自动降档。 */
+  private qualityLocked = storedQuality() !== null;
+
   private readonly projOut = { x: 0, y: 0, visible: false };
   private readonly projVec = new THREE.Vector3();
 
@@ -100,6 +104,12 @@ export class Game {
       openMenu: () => this.openMenu(),
       retry: () => this.startLevel(this.world?.level.id ?? 1),
       nextLevel: () => this.startLevel(Math.min(LEVELS.length, (this.world?.level.id ?? 1) + 1)),
+      cycleQuality: () => {
+        const order: QualityLevel[] = ['low', 'medium', 'high'];
+        const i = order.indexOf(this.renderer.quality.level);
+        this.setQuality(order[(i + 1) % order.length]!);
+      },
+      qualityLabel: () => this.qualityLabel,
       toggleMute: () => {
         this.save.muted = !this.save.muted;
         this.audio.setMuted(this.save.muted);
@@ -203,6 +213,7 @@ export class Game {
     this.audio.frame();
 
     if (this.phase === 'playing' && this.world) {
+      this.checkQuality(dt);
       this.stepWorld(this.world, dt);
     } else if (this.world) {
       // 结算/菜单时场景继续渲染，但不再推进模拟
@@ -212,6 +223,38 @@ export class Game {
     this.renderer.render();
     requestAnimationFrame(this.frame);
   };
+
+  /**
+   * 开局实测帧时，跟不上就降一档。
+   * 只降不升 —— 升档要重建全部角色几何体，为一次误判做这件事不划算。
+   */
+  private checkQuality(dt: number): void {
+    if (this.qualityLocked) return;
+    const next = this.probe.sample(dt, this.renderer.quality.level);
+    if (!next) return;
+    this.setQuality(next, false);
+  }
+
+  /** 切换画质档。角色几何体是按档生成的，所以要整个重建视图。 */
+  setQuality(level: QualityLevel, manual = true): void {
+    if (level === this.renderer.quality.level) return;
+    this.renderer.applyQuality(level);
+    this.view.rebuild();
+    if (this.world) this.view.buildLevel(this.world);
+    this.syncOverlay();
+    if (manual) {
+      this.qualityLocked = true;
+      storeQuality(level);
+    }
+  }
+
+  get quality(): QualityLevel {
+    return this.renderer.quality.level;
+  }
+
+  get qualityLabel(): string {
+    return QUALITY[this.renderer.quality.level].label;
+  }
 
   private stepWorld(world: World, dt: number): void {
     this.input.tick(dt);

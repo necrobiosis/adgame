@@ -168,8 +168,8 @@ export function createCrowdMaterial(opts: CrowdMaterialOptions = {}): CrowdMater
         diffuseColor.rgb *= vTint;
         // 受击提亮。大型敌人会被持续命中（vFlash 常驻 1），所以这里必须是
         // "保持色相地提亮"而不是往纯白插值 —— 否则 Boss 会糊成一团白。
-        vec3 hit = clamp(diffuseColor.rgb * 2.6 + 0.16, 0.0, 1.0);
-        diffuseColor.rgb = mix(diffuseColor.rgb, hit, vFlash * 0.55);
+        vec3 hit = clamp(diffuseColor.rgb * 1.9 + 0.08, 0.0, 1.0);
+        diffuseColor.rgb = mix(diffuseColor.rgb, hit, vFlash * 0.45);
         `,
       );
   };

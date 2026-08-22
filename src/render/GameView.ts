@@ -53,6 +53,18 @@ const CROWD_CAPACITY: Record<EnemyKind, number> = {
   boss: 1,
 };
 
+/**
+ * 受击提亮的强度。
+ *
+ * 体型越大的怪闪得越弱：Boss 每秒要挨上百发，flash 实际上是常驻满值的，
+ * 按小怪的幅度去提亮会让它整只糊成一块粉白。大块头挨一枪本来也不该整个亮起来。
+ */
+function flashAmount(e: Enemy): number {
+  if (e.flash <= 0) return 0;
+  const raw = e.flash / 0.09;
+  return e.scale >= 2 ? raw * 0.3 : e.scale >= 1.4 ? raw * 0.6 : raw;
+}
+
 /** Enemies.ts 里的倒地动画时长，用来把 dying 换算成 0..1 的翻倒进度。 */
 const DYING_TIME = 0.55;
 
@@ -188,6 +200,29 @@ export class GameView {
     this.scene.add(this.shells);
 
     this.scene.add(this.bars.mesh, this.tracers.mesh, this.sparks.mesh, this.smoke.mesh, this.gold.mesh, this.ring.mesh, this.lane.mesh);
+  }
+
+  /**
+   * 换画质档时重建所有动态资产。
+   * 角色几何体是按档生成的（分段数和配件档不同），不重建的话换档只会改光影
+   * 而角色面数原封不动。
+   */
+  rebuild(): void {
+    for (const b of this.batches.values()) {
+      this.scene.remove(b.mesh);
+      b.dispose();
+    }
+    this.batches.clear();
+    this.matSets.length = 0;
+    this.scene.remove(this.soldiers.mesh);
+    this.soldiers.dispose();
+    this.scene.remove(this.cannons, this.shells);
+    this.cannons.geometry.dispose();
+    (this.cannons.material as THREE.Material).dispose();
+    this.shells.geometry.dispose();
+    (this.shells.material as THREE.Material).dispose();
+    this.buildCharacters();
+    this.buildProps();
   }
 
   /** 为一关搭出静态场景。切关时调用。 */
@@ -362,7 +397,7 @@ export class GameView {
       0,
       attacking ? 1 : 0,
       death,
-      e.flash > 0 ? e.flash / 0.09 : 0,
+      flashAmount(e),
       this.tints.get(e.kind)!,
     );
     if (st.showHealthBar && e.alive && e.hp < e.maxHp) {
@@ -441,7 +476,7 @@ export class GameView {
         0,
         0,
         death,
-        b.flash > 0 ? b.flash / 0.09 : 0,
+        flashAmount(b),
         this.tints.get('boss')!,
       );
     }

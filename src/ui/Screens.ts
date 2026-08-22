@@ -16,6 +16,9 @@ export interface ScreenActions {
   retry(): void;
   nextLevel(): void;
   toggleMute(): void;
+  /** 在低 / 中 / 高之间循环。 */
+  cycleQuality(): void;
+  qualityLabel(): string;
   click(): void;
 }
 
@@ -67,6 +70,7 @@ export class Screens {
     const el = h(`
       <div class="screen">
         <button class="btn mute-btn" data-mute>${this.save.muted ? '🔇' : '🔊'}</button>
+        <button class="btn quality-btn" data-quality>画质 ${this.actions.qualityLabel()}</button>
         <div class="title">末日生存</div>
         <div class="subtitle">尸潮防线</div>
         <div class="stat gold" style="align-self:center;margin-bottom:6px"><div class="dot">$</div><div class="val">${this.save.gold}</div></div>
@@ -114,6 +118,10 @@ export class Screens {
     this.bind(el, '[data-shop]', () => this.actions.openShop());
     this.bind(el, '[data-mute]', () => {
       this.actions.toggleMute();
+      this.showMenu();
+    });
+    this.bind(el, '[data-quality]', () => {
+      this.actions.cycleQuality();
       this.showMenu();
     });
   }
