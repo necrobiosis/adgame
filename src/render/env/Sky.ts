@@ -68,6 +68,65 @@ export const CRIMSON: SkyTheme = {
   sunIntensity: 6,
 };
 
+/**
+ * 第二关 · 高架断层：钴蓝的病态晨雾，太阳被烟埋掉大半。
+ * 比第一关更冷更沉，读起来像"天还没亮透就已经不对劲了"。
+ */
+export const FAULTLINE: SkyTheme = {
+  top: 0x2f3a44,
+  horizon: 0x7e8b86,
+  ground: 0x40484a,
+  fog: 0x6d7a76,
+  sun: 0xd8d0a8,
+  ambient: 0x6a7680,
+  sunDir: [-0.34, 0.42, 0.42],
+  sunIntensity: 5.5,
+};
+
+/**
+ * 第三关 · 尸山阶梯：病态的黄绿腐气，天光被尸潮蒸腾的雾滤过。
+ * 和这一关满地的尸液贴花是同一套色相。
+ */
+export const MIASMA: SkyTheme = {
+  top: 0x3d4230,
+  horizon: 0xa8a05c,
+  ground: 0x4e4f38,
+  fog: 0x86855a,
+  sun: 0xe8dc8a,
+  ambient: 0x6f7a52,
+  sunDir: [-0.44, 0.46, 0.3],
+  sunIntensity: 6.4,
+};
+
+/**
+ * 第五关 · 世界终点：天被撕开，只剩冷紫的余光和一颗惨白的太阳。
+ * 全局最暗、最不像"白天"的一关，但主光仍然够硬，角色轮廓不能糊掉。
+ */
+export const VOID_END: SkyTheme = {
+  top: 0x241c33,
+  horizon: 0x6b4a6e,
+  ground: 0x38303f,
+  fog: 0x5c4a63,
+  sun: 0xf0e2ff,
+  ambient: 0x6a5f84,
+  sunDir: [-0.55, 0.3, 0.36],
+  sunIntensity: 7,
+};
+
+/**
+ * 五关各自的天色。
+ *
+ * 之前只有两套（1-3 一套、4-5 一套），五关看起来几乎一模一样——关卡名
+ * 承诺了跨海大桥/高架断层/尸山阶梯/猩红黎明/世界终点，渲染层一个都没兑现。
+ * 天空同时也是环境光源（PMREM），所以换一套天色，金属反射、雾、整体色调
+ * 会一起变——这是拉开五关差距性价比最高的一处。
+ */
+export const LEVEL_SKIES: readonly SkyTheme[] = [APOCALYPSE, FAULTLINE, MIASMA, CRIMSON, VOID_END];
+
+export function skyForLevel(id: number): SkyTheme {
+  return LEVEL_SKIES[Math.max(0, Math.min(LEVEL_SKIES.length - 1, id - 1))]!;
+}
+
 /** 天空球。太阳本体画在着色器里，这样 PMREM 之后金属上才有像样的高光。 */
 export function createSky(theme: SkyTheme): THREE.Mesh {
   const dir = new THREE.Vector3(...theme.sunDir).normalize();

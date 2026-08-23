@@ -14,7 +14,8 @@ import { ChaseCamera, Renderer } from './Renderer';
 import { createCity } from './env/City';
 import { createBridge } from './env/Bridge';
 import { Dragon } from './env/Dragon';
-import { APOCALYPSE, CRIMSON, createLights, createSky, createSkyEnvironment, type SceneLights, type SkyTheme } from './env/Sky';
+import { createLights, createSky, createSkyEnvironment, skyForLevel, type SceneLights, type SkyTheme } from './env/Sky';
+import { Weather, type WeatherKind } from './env/Weather';
 import { Decals } from './fx/Decals';
 import { FlashLights } from './fx/FlashLights';
 import { GoldBurst } from './fx/GoldBurst';
@@ -98,6 +99,24 @@ export interface FloatRequest {
   big?: boolean;
 }
 
+/**
+ * 每关的环境个性：天气种类、窗灯色、雾的远近。
+ * 天色本身由 skyForLevel() 给（同时也是 IBL 环境光），这里只补天色之外
+ * 那几样能把关卡拉开距离的东西。关卡名承诺的场景，靠这张表兑现。
+ */
+const LEVEL_FLAVOUR: readonly { weather: WeatherKind; window: number; fogNear: number; fogFar: number }[] = [
+  // 一 · 跨海大桥：远海方向飘来的灰
+  { weather: 'ash',   window: 0xff9c3a, fogNear: 95, fogFar: 430 },
+  // 二 · 高架断层：冷雨，视野最差
+  { weather: 'rain',  window: 0xbfd4e0, fogNear: 70, fogFar: 330 },
+  // 三 · 尸山阶梯：腐气蒸腾，灰更重
+  { weather: 'ash',   window: 0xc8e05a, fogNear: 60, fogFar: 300 },
+  // 四 · 猩红黎明：天上下火星
+  { weather: 'ember', window: 0xff7a3a, fogNear: 80, fogFar: 380 },
+  // 五 · 世界终点：火星 + 最近的雾，世界正在合拢
+  { weather: 'ember', window: 0xd8b0ff, fogNear: 55, fogFar: 280 },
+];
+
 export class GameView {
   readonly camera = new ChaseCamera();
   /** 本帧要显示的飘字，由 UI 层取走。 */
@@ -162,6 +181,7 @@ export class GameView {
   /** 每关重建的静态场景。 */
   private levelRoot = new THREE.Group();
   private lights: SceneLights | null = null;
+  private weather: Weather | null = null;
   private gateWalls: { z: number; wall: GateWall; id: number }[] = [];
   private blockMeshes: BlockMesh[] = [];
   private time = 0;
@@ -349,7 +369,8 @@ export class GameView {
   buildLevel(world: World): void {
     this.disposeLevel();
     const root = new THREE.Group();
-    const theme: SkyTheme = world.level.id >= 4 ? CRIMSON : APOCALYPSE;
+    const theme: SkyTheme = skyForLevel(world.level.id);
+    const flavour = LEVEL_FLAVOUR[Math.max(0, Math.min(LEVEL_FLAVOUR.length - 1, world.level.id - 1))]!;
     const q = this.r.quality;
 
     root.add(createSky(theme));
@@ -359,11 +380,16 @@ export class GameView {
     const lights = createLights(theme, q.shadowMap);
     for (const l of lights.all) root.add(l);
     this.lights = lights;
-    this.scene.fog = new THREE.Fog(theme.fog, 90, 420);
+    this.scene.fog = new THREE.Fog(theme.fog, flavour.fogNear, flavour.fogFar);
 
     const rng = new Rng(0x1234 + world.level.id * 977);
     root.add(createBridge(world.totalLength, rng, q.envDetail));
-    root.add(createCity(world.totalLength, rng, q.envDetail));
+    root.add(createCity(world.totalLength, rng, q.envDetail, flavour.window));
+
+    if (flavour.weather !== 'none') {
+      this.weather = new Weather(flavour.weather, q.envDetail);
+      root.add(this.weather.mesh);
+    }
 
     for (const g of world.gates) {
       const wall = new GateWall(g.z, g.left, g.right);
@@ -411,6 +437,8 @@ export class GameView {
     // 地面留痕和爆闪不跟着换关：上一关的血迹留到下一关是穿帮
     this.decals.clear();
     this.flashes.reset();
+    // weather 的网格挂在 levelRoot 下，上面的 traverse 已经 dispose 过几何和材质了
+    this.weather = null;
   }
 
   /**
@@ -488,6 +516,8 @@ export class GameView {
     this.waves.update(dt);
     this.flashes.update(dt);
     this.updateAmbientSmoke(dt);
+    // 天气盒跟着方阵走，所以实例数恒定，不用按赛道长度铺满
+    this.weather?.update(dt, world.squad.x * 0.4, world.squad.z + 20);
     this.dragon.update(dt, world.squad.x * 0.3, world.squad.z + 90);
 
     if (!this.applyInspect(world)) {

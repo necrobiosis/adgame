@@ -13,7 +13,7 @@ import { ensureSurf } from '../mat/triplanar';
  * 远景是纯剪影。加上雾，远处自然糊成层次 —— 这正是广告里"站在高架上俯瞰一整座
  * 死城"的观感，而近处的那几十栋才真的花三角形。
  */
-export function createCity(length: number, rng: Rng, detail = 1): THREE.Group {
+export function createCity(length: number, rng: Rng, detail = 1, windowColor = 0xff9c3a): THREE.Group {
   const g = new THREE.Group();
   const L = length + 400;
   const z0 = -200;
@@ -48,6 +48,27 @@ export function createCity(length: number, rng: Rng, detail = 1): THREE.Group {
   g.add(instancedFrom(midBlock(), concrete, mid));
   g.add(instancedFrom(ensureSurf(chamferBox(1, 1, 1, 0.05)), industrial(PRESET.concrete(0x5c5850)), far));
   void steel;
+
+  // ── 窗灯 ──────────────────────────────────────────────────
+  // 建筑之前既没有窗户也没有灯，天际线是一排纯灰的方块。撒一批自发光的
+  // 小方片贴在近中景楼的侧面当亮着的窗户——数量不多，但因为是自发光，
+  // bloom 会自动接管，末日天际线一下就有了"还有幸存者"的层次。
+  const lit: THREE.Matrix4[] = [];
+  const litCount = Math.round(340 * THREE.MathUtils.clamp(detail, 0.4, 1));
+  for (let i = 0; i < litCount; i++) {
+    const side = rng.next() < 0.5 ? -1 : 1;
+    const band = rng.next() * 0.55;
+    const dist = 18 + band * 260;
+    // 贴在朝向大桥的那一面，往里偏一点避免和墙面 z-fighting
+    const x = side * (dist - 0.6) + rng.range(-8, 8);
+    const z = z0 + rng.next() * L;
+    const y = -40 + rng.next() * 90;
+    const w = rng.range(0.5, 1.5);
+    const h = rng.range(0.5, 1.4);
+    lit.push(trs(x, y, z, w, h, 0.2, 0, side > 0 ? -Math.PI / 2 : Math.PI / 2, 0));
+  }
+  const windowMat = new THREE.MeshBasicMaterial({ color: windowColor, toneMapped: false, fog: true });
+  g.add(instancedFrom(chamferBox(1, 1, 1, 0.02), windowMat, lit, { receiveShadow: false }));
 
   // 雾的底色，避免俯视时看到虚空
   const ground = new THREE.Mesh(
