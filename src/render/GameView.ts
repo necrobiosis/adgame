@@ -15,6 +15,7 @@ import { createCity } from './env/City';
 import { createBridge } from './env/Bridge';
 import { Dragon } from './env/Dragon';
 import { createLights, createSky, createSkyEnvironment, skyForLevel, type SceneLights, type SkyTheme } from './env/Sky';
+import { createProps, propsForLevel } from './env/Props';
 import { Weather, type WeatherKind } from './env/Weather';
 import { Decals } from './fx/Decals';
 import { FlashLights } from './fx/FlashLights';
@@ -385,6 +386,8 @@ export class GameView {
     const rng = new Rng(0x1234 + world.level.id * 977);
     root.add(createBridge(world.totalLength, rng, q.envDetail));
     root.add(createCity(world.totalLength, rng, q.envDetail, flavour.window));
+    // 路肩陈设：每关一套配方，用近景把五关的差别坐实（远景交给天色和天气）
+    root.add(createProps(world.totalLength, rng, propsForLevel(world.level.id), q.envDetail));
 
     if (flavour.weather !== 'none') {
       this.weather = new Weather(flavour.weather, q.envDetail);
