@@ -575,8 +575,33 @@ export class GameView {
     const totalSoldiers = scratch.length;
     const cap = Math.min(this.r.quality.soldierInstances, this.r.quality.soldierVisualCap);
     if (totalSoldiers > cap) {
-      scratch.sort((a, b) => a.row - b.row);
-      scratch.length = cap;
+      // 光按 row 排序切前 cap 个：人一多，队形的一整排本身就能超过 cap
+      // （比如 236 人时一排能有二十几个），稳定排序又保留了同排内原始的
+      // 从左到右顺序——截断结果变成"第一排最左边连续 cap 个人"，画出来是
+      // 一条横线，还正好方便 Boss 的 AoE 一圈全部罩住。改成分层取样：挑
+      // 几排、每排横向匀开取样，凑出一个有宽度也有纵深的小方阵。
+      scratch.sort((a, b) => (a.row === b.row ? a.col - b.col : a.row - b.row));
+      const dispCols = Math.max(1, Math.ceil(Math.sqrt(cap * 1.4)));
+      let w = 0;
+      let i = 0;
+      while (i < scratch.length && w < cap) {
+        let j = i;
+        const row = scratch[i]!.row;
+        while (j < scratch.length && scratch[j]!.row === row) j++;
+        const groupLen = j - i;
+        const take = Math.min(dispCols, cap - w, groupLen);
+        if (groupLen <= take) {
+          for (let k = i; k < j; k++) scratch[w++] = scratch[k]!;
+        } else {
+          // 行内按列等间距抽样，保住这一排原本的宽度感，而不是从一头连续切一段
+          for (let k = 0; k < take; k++) {
+            const idx = i + Math.min(groupLen - 1, Math.round((k + 0.5) * groupLen / take));
+            scratch[w++] = scratch[idx]!;
+          }
+        }
+        i = j;
+      }
+      scratch.length = w;
     }
 
     for (const u of scratch) {
