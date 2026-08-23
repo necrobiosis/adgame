@@ -83,14 +83,53 @@ describe('策略深度', () => {
     expect(outcomes.size, '第五关不管怎么选门结果都一样，说明门不影响胜负').toBeGreaterThan(1);
   });
 
-  it('每一关的岔路都不是同一个问题的重复', () => {
-    // 一关之内，两条车道的增益类型组合不应当全都一样
-    for (const lvl of LEVELS) {
-      const pairs = lvl.beats
-        .filter((b): b is Extract<typeof b, { t: 'choice' }> => b.t === 'choice')
-        .map((b) => [b.left.gate.type, b.right.gate.type].sort().join('|'));
-      const unique = new Set(pairs);
-      expect(unique.size, `第 ${lvl.id} 关的岔路组合重复：${pairs.join('  ')}`).toBe(pairs.length);
+  it('两侧永远是不同类型的增益', () => {
+    // 都给兵力的两个门不构成选择。随机生成必须保证这一条。
+    for (let seed = 1; seed <= 30; seed++) {
+      for (const lvl of LEVELS) {
+        const w = new World({ levelId: lvl.id, upgrades: MAX, seed });
+        for (const g of w.gates) {
+          expect(
+            g.left.gate.type,
+            `第 ${lvl.id} 关 seed ${seed}：两侧都是 ${g.left.gate.type}`,
+          ).not.toBe(g.right.gate.type);
+        }
+      }
+    }
+  });
+
+  it('每一局掷出来的岔路都不一样（roguelike 的随机性真的生效）', () => {
+    // 同一关不同种子，岔路组合应当明显不同；否则"随机"只是个说法
+    const fingerprint = (seed: number) =>
+      new World({ levelId: 3, upgrades: MAX, seed }).gates
+        .map((g) => `${g.left.gate.type}${g.left.gate.value}/${g.right.gate.type}${g.right.gate.value}`)
+        .join(',');
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 12; seed++) seen.add(fingerprint(seed));
+    expect(seen.size, '12 个种子应当掷出多种不同的岔路组合').toBeGreaterThan(8);
+    // 同一个种子必须稳定复现，否则回放/调试都无从谈起
+    expect(fingerprint(7)).toBe(fingerprint(7));
+  });
+
+  it('左右两侧不存在长期偏向（"永远走右边"不该是一条策略）', () => {
+    // 统计大量种子里，"更强的那一侧"落在左边还是右边
+    const strength = (t: string) => (t === 'sub' || t === 'div' ? 0 : 1);
+    let leftStrong = 0;
+    let total = 0;
+    for (let seed = 1; seed <= 60; seed++) {
+      const w = new World({ levelId: 4, upgrades: MAX, seed });
+      for (const g of w.gates) {
+        const l = strength(g.left.gate.type);
+        const r = strength(g.right.gate.type);
+        if (l === r) continue;
+        total++;
+        if (l > r) leftStrong++;
+      }
+    }
+    if (total >= 10) {
+      const share = leftStrong / total;
+      expect(share, `强的一侧有 ${(share * 100).toFixed(0)}% 落在左边，明显偏向`).toBeGreaterThan(0.25);
+      expect(share).toBeLessThan(0.75);
     }
   });
 });

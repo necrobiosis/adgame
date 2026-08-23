@@ -28,7 +28,9 @@ function laneProfile(w: WaveSpec) {
  *   兵力上来之后转去堆火力（后排火力衰减让堆人头收益递减），
  *   同分时让增益去克制它自己那条车道的怪。
  */
-function scoreLane(gate: GateSpec, wave: WaveSpec, n: number): number {
+function scoreLane(gate: GateSpec, wave: WaveSpec, n: number, gold = Infinity): number {
+  // 买不起就等于这条车道什么都不给——牌子上写着价钱，真人不会往上撞
+  if ((gate.cost ?? 0) > gold) return -99;
   const p = laneProfile(wave);
   const wantBodies = n < 90;
   let s = 0;
@@ -55,7 +57,7 @@ function play(levelId: number, upgrades: Record<UpgradeId, number>, seed = 3) {
     let want = LANE_SIGN.left * 6;
     if (next) {
       const n = w.squad.soldierCount;
-      const side = scoreLane(next.left.gate, next.left.wave, n) >= scoreLane(next.right.gate, next.right.wave, n) ? 'left' : 'right';
+      const side = scoreLane(next.left.gate, next.left.wave, n, w.gold) >= scoreLane(next.right.gate, next.right.wave, n, w.gold) ? 'left' : 'right';
       want = LANE_SIGN[side] * 6;
     }
     w.steer = Math.abs(want - w.squad.x) > 0.3 ? Math.sign(want - w.squad.x) : 0;

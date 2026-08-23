@@ -71,7 +71,10 @@ describe('World', () => {
     // 设计上方阵**永远不会被彻底钉死**——全宽方块留了两条路肩缝，硬挤也能
     // 挤过去，只是慢得像蜗牛。停下来干等的手感太糟，所以这里验的是
     // "慢到几乎不动 + 打掉之后立刻恢复"，而不是"完全静止"。
-    const w = new World({ levelId: 2, upgrades: NO_UPGRADES, seed: 3 });
+    // 这条测的是方块的推进机制，不是难度曲线——给一套够用的升级，
+    // 保证方阵能活着走到方块跟前，否则测的就变成"裸配能不能撑到那儿"了
+    const kitted: Record<UpgradeId, number> = { squad: 10, damage: 8, fireRate: 6, cannon: 4, armor: 8, weapon: 2 };
+    const w = new World({ levelId: 2, upgrades: kitted, seed: 3 });
     const full = w.blocks.find((b) => b.span === 'full')!;
     const dt = 1 / 60;
     let crawl = Infinity;

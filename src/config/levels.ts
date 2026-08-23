@@ -55,7 +55,24 @@ export type BlockSpan = 'left' | 'right' | 'full';
 
 export type Beat =
   | { readonly t: 'run'; readonly len: number }
-  | { readonly t: 'choice'; readonly left: LaneChoice; readonly right: LaneChoice }
+  /**
+   * 尸潮涌现：同一批怪在 `seconds` 秒里分 `pulses` 波连续涌出来，
+   * 而不是一次性刷完。
+   *
+   * 一次性刷 500 只的结果是它们排成一堵墙一起推过来，打完就没了；
+   * 拆成十几秒的连续涌现，压迫感完全不同——你永远看得到后面还有一层，
+   * 前排刚清掉下一层就压上来了。后面几关靠它撑起"尸潮"的体感。
+   */
+  | { readonly t: 'surge'; readonly seconds: number; readonly pulses: number; readonly wave: WaveSpec }
+  /**
+   * 岔路口。
+   *
+   * 不给 left/right 就是**每局现掷**（见 sim/GateRoll.ts）——给什么增益、
+   * 多少、标不标价、在哪一侧、后面跟哪种怪，全按本局种子随机。同一关玩两遍
+   * 看到的岔路不一样，才有 roguelike 那种"这把开出了什么"的感觉。
+   * 显式写死 left/right 仍然支持，用来钉住教学关的头几个门。
+   */
+  | { readonly t: 'choice'; readonly left?: LaneChoice; readonly right?: LaneChoice }
   | { readonly t: 'wave'; readonly wave: WaveSpec }
   | {
       readonly t: 'block';
@@ -124,18 +141,10 @@ const LEVEL_1: LevelDef = {
     // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
     { t: 'block', hp: 2400, span: 'left', bonus: 80, tall: true },
     { t: 'run', len: 44 },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'cannon', value: 3, cost: 120 }, wave: swarm(180, 16), hint: '蜂群' },
-      right: { gate: { type: 'armor', value: 40 }, wave: elite([{ kind: 'brute', count: 3 }, { kind: 'walker', count: 40 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 73 },
     { t: 'midboss', hp: 2200, scale: 1.0, name: '锈蚀行者' },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'add', value: 55 }, wave: swarm(230, 24), hint: '蜂群' },
-      right: { gate: { type: 'firerate', value: 45 }, wave: elite([{ kind: 'brute', count: 3 }, { kind: 'screamer', count: 3 }, { kind: 'leaper', count: 4 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 70 },
     { t: 'wave', wave: swarm(200, 20) },
     { t: 'run', len: 58 },
@@ -153,30 +162,17 @@ const LEVEL_2: LevelDef = {
     { t: 'run', len: 44 },
     { t: 'wave', wave: swarm(70, 10) },
     { t: 'run', len: 52 },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'mul', value: 2 }, wave: swarm(200, 24), hint: '蜂群' },
-      right: { gate: { type: 'weapon', value: 1, cost: 200 }, wave: elite([{ kind: 'brute', count: 3 }, { kind: 'screamer', count: 3 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 67 },
     { t: 'block', hp: 9000, span: 'full' },
     { t: 'run', len: 38 },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'cannon', value: 4 }, wave: swarm(280, 34), hint: '蜂群' },
-      right: { gate: { type: 'armor', value: 55 }, wave: elite([{ kind: 'brute', count: 4 }, { kind: 'titan', count: 1 }, { kind: 'spitter', count: 5 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 73 },
     // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
     { t: 'block', hp: 7500, span: 'right', bonus: 130, tall: true },
     { t: 'run', len: 16 },
     { t: 'midboss', hp: 5500, scale: 1.08, name: '疫化魁首' },
-    {
-      t: 'choice',
-      // 安全通道 vs 火力飞跃
-      left:  { gate: { type: 'div', value: 2 }, wave: swarm(40), hint: '安全' },
-      right: { gate: { type: 'weapon', value: 2, cost: 320 }, wave: elite([{ kind: 'titan', count: 2 }, { kind: 'brute', count: 3 }, { kind: 'armored', count: 5 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 64 },
     { t: 'wave', wave: swarm(300, 40) },
     { t: 'run', len: 58 },
@@ -194,31 +190,19 @@ const LEVEL_3: LevelDef = {
     { t: 'run', len: 41 },
     { t: 'wave', wave: swarm(120, 18) },
     { t: 'run', len: 46 },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'add', value: 60 }, wave: swarm(260, 36), hint: '蜂群' },
-      right: { gate: { type: 'firerate', value: 55 }, wave: elite([{ kind: 'brute', count: 3 }, { kind: 'titan', count: 1 }, { kind: 'leaper', count: 8 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 58 },
     { t: 'block', hp: 26000, span: 'full' },
     { t: 'run', len: 35 },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'cannon', value: 6, cost: 420 }, wave: swarm(340, 44), hint: '蜂群' },
-      right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 2 }, { kind: 'screamer', count: 4 }, { kind: 'armored', count: 8 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 67 },
     // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
     { t: 'block', hp: 18000, span: 'right', bonus: 200, tall: true },
     { t: 'run', len: 32 },
     { t: 'midboss', hp: 9500, scale: 1.15, name: '尸潮领班' },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'mul', value: 2 }, wave: swarm(380, 50), hint: '蜂群' },
-      right: { gate: { type: 'armor', value: 70, cost: 500 }, wave: elite([{ kind: 'titan', count: 3 }, { kind: 'spitter', count: 9 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 61 },
-    { t: 'wave', wave: swarm(360, 48) },
+    { t: 'surge', seconds: 13, pulses: 7, wave: swarm(52, 7, 30) },
     { t: 'run', len: 55 },
     { t: 'boss', hp: 160000, scale: 1.2, name: '尸山之王' },
   ],
@@ -234,31 +218,19 @@ const LEVEL_4: LevelDef = {
     { t: 'run', len: 38 },
     { t: 'wave', wave: swarm(150, 22) },
     { t: 'run', len: 44 },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'mul', value: 3 }, wave: swarm(320, 46), hint: '蜂群' },
-      right: { gate: { type: 'weapon', value: 2, cost: 620 }, wave: elite([{ kind: 'brute', count: 4 }, { kind: 'titan', count: 2 }, { kind: 'spitter', count: 10 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 55 },
     { t: 'block', hp: 62000, span: 'full' },
     { t: 'run', len: 32 },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'cannon', value: 8 }, wave: swarm(420, 64), hint: '蜂群' },
-      right: { gate: { type: 'armor', value: 80 }, wave: elite([{ kind: 'titan', count: 3 }, { kind: 'brute', count: 5 }, { kind: 'armored', count: 12 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 48 },
     // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
     { t: 'block', hp: 48000, span: 'left', bonus: 260, tall: true },
     { t: 'run', len: 16 },
     { t: 'midboss', hp: 15000, scale: 1.25, name: '赤红囚徒' },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'sub', value: 40 }, wave: swarm(60), hint: '安全' },
-      right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 5 }, { kind: 'screamer', count: 5 }, { kind: 'leaper', count: 14 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 58 },
-    { t: 'wave', wave: swarm(420, 70) },
+    { t: 'surge', seconds: 15, pulses: 8, wave: swarm(53, 9, 32) },
     { t: 'run', len: 52 },
     { t: 'boss', hp: 260000, scale: 1.35, name: '猩红使徒' },
   ],
@@ -274,31 +246,19 @@ const LEVEL_5: LevelDef = {
     { t: 'run', len: 35 },
     { t: 'wave', wave: swarm(200, 30) },
     { t: 'run', len: 38 },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'firerate', value: 70 }, wave: swarm(400, 70), hint: '蜂群' },
-      right: { gate: { type: 'weapon', value: 2 }, wave: elite([{ kind: 'titan', count: 3 }, { kind: 'brute', count: 6 }, { kind: 'armored', count: 14 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 49 },
     { t: 'block', hp: 140000, span: 'full' },
     { t: 'run', len: 29 },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'add', value: 190 }, wave: swarm(520, 90), hint: '蜂群' },
-      right: { gate: { type: 'armor', value: 90 }, wave: elite([{ kind: 'titan', count: 5 }, { kind: 'spitter', count: 14 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 58 },
     // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
     { t: 'block', hp: 90000, span: 'left', bonus: 420, tall: true },
     { t: 'run', len: 29 },
     { t: 'midboss', hp: 24000, scale: 1.35, name: '深渊先驱' },
-    {
-      t: 'choice',
-      left:  { gate: { type: 'cannon', value: 10, cost: 900 }, wave: swarm(600, 110), hint: '蜂群' },
-      right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 7 }, { kind: 'leaper', count: 18 }, { kind: 'armored', count: 8 }]), hint: '精英' },
-    },
+    { t: 'choice' },
     { t: 'run', len: 67 },
-    { t: 'wave', wave: elite([{ kind: 'titan', count: 5 }, { kind: 'brute', count: 10 }, { kind: 'walker', count: 260 }], 30) },
+    { t: 'surge', seconds: 18, pulses: 9, wave: elite([{ kind: 'brute', count: 1 }, { kind: 'walker', count: 30 }, { kind: 'runner', count: 6 }], 32) },
     { t: 'run', len: 55 },
     { t: 'boss', hp: 420000, scale: 1.55, name: '终末之主' },
   ],

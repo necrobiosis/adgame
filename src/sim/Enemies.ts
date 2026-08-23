@@ -1,4 +1,4 @@
-import { ENEMY_STATS, LEAPER, MELEE, ROAD_HALF, SCREAMER_AURA, SOLDIER, SPITTER, type EnemyKind } from '../config/balance';
+import { ENEMY_STATS, LEAPER, MELEE, ROAD_HALF, SCREAMER_AURA, SIZE_JITTER, SOLDIER, SPITTER, type EnemyKind } from '../config/balance';
 import type { Rng } from '../core/Rng';
 import type { WaveSpec } from '../config/levels';
 import type { Squad } from './Squad';
@@ -64,7 +64,9 @@ export class EnemyPool {
       maxHp: hp,
       alive: true,
       phase: this.rng.range(0, Math.PI * 2),
-      scale: (opts?.scale ?? st.scale) * this.sizeScale,
+      // 体型抖动：同一种怪也要有高有矮，尸潮才不像复制粘贴。
+      // 显式指定 scale 的（Boss / 中 Boss）不抖，它们的体型是设计好的。
+      scale: (opts?.scale ?? st.scale * this.sizeJitter(kind)) * this.sizeScale,
       attackCd: this.rng.range(0, 0.6),
       laneOffset: this.rng.range(-1, 1),
       flash: 0,
@@ -78,6 +80,14 @@ export class EnemyPool {
     };
     this.list.push(e);
     return e;
+  }
+
+  /** 按种类给一个稳定的出生体型系数。 */
+  private sizeJitter(kind: EnemyKind): number {
+    const st = ENEMY_STATS[kind];
+    if (kind === 'boss' || kind === 'midboss') return 1;
+    const amp = st.scale >= 1.25 ? SIZE_JITTER.elite : SIZE_JITTER.trash;
+    return 1 + this.rng.range(-amp, amp);
   }
 
   /**

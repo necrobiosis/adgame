@@ -17,6 +17,7 @@ import { BossController } from './Boss';
 import { Combat } from './Combat';
 import { EnemyPool } from './Enemies';
 import { applyGate, deniedResult } from './Gates';
+import { rollChoice } from './GateRoll';
 import { MidBossController } from './MidBoss';
 import { Squad } from './Squad';
 import { LANE_SIGN, sideAtX } from './lanes';
@@ -88,6 +89,9 @@ export class World {
   private readonly rng: Rng;
   private readonly events: SimEvent[] = [];
   private pendingWaves: { wave: WaveSpec; z: number }[] = [];
+  /** 已触发、正在按节拍往外吐的尸潮涌现。 */
+  private surges: { wave: WaveSpec; left: number; interval: number; timer: number }[] = [];
+  private pendingSurges: { z: number; seconds: number; pulses: number; wave: WaveSpec }[] = [];
   private pendingMidBoss: { hp: number; scale: number; name: string; z: number } | null = null;
   private bossTriggered = false;
   private bossArenaTargetZ = 0;
@@ -118,6 +122,9 @@ export class World {
   /** 把关卡的 beats 铺成绝对 z 坐标。 */
   private buildTrack(): void {
     let z = 0;
+    const totalChoices = this.level.beats.filter((b) => b.t === 'choice').length;
+    let choiceIndex = 0;
+    let sinceBodies = 0;
     for (const beat of this.level.beats as readonly Beat[]) {
       switch (beat.t) {
         case 'run': {
@@ -138,12 +145,33 @@ export class World {
           z += beat.len;
           break;
         }
-        case 'choice':
-          this.gates.push({ id: this.nextId++, z, left: beat.left, right: beat.right, taken: false, chosen: null });
+        case 'choice': {
+          // 没写死 left/right 的岔路每局现掷 —— roguelike 的随机性在这里产生。
+          // 定价参考"走到这个门时手里大概有多少钱"：太贵是死路，太便宜没取舍。
+          const rolled = beat.left && beat.right
+            ? { left: beat.left, right: beat.right }
+            : rollChoice(
+                this.rng,
+                { levelId: this.level.id, index: choiceIndex, total: totalChoices, sinceBodies },
+                // 实测的金币曲线：第三关三个门依次约 170 / 580 / 1500。
+                // 定价必须贴着它走，标高了就是一条永远走不了的死路。
+                110 * this.level.id * (0.5 + choiceIndex),
+              );
+          choiceIndex++;
+          const gaveBodies = [rolled.left, rolled.right].some(
+            (l) => l.gate.type === 'add' || l.gate.type === 'mul',
+          );
+          sinceBodies = gaveBodies ? 0 : sinceBodies + 1;
+          this.gates.push({ id: this.nextId++, z, left: rolled.left, right: rolled.right, taken: false, chosen: null });
           z += GATE_DEPTH;
           break;
+        }
         case 'wave':
           this.pendingWaves.push({ wave: beat.wave, z });
+          break;
+        case 'surge':
+          // 和 'wave' 一样只登记触发点，不占赛道长度
+          this.pendingSurges.push({ z, seconds: beat.seconds, pulses: beat.pulses, wave: beat.wave });
           break;
         case 'block': {
           // span 说的是玩家看到的哪半边路，换算成世界 x
@@ -285,6 +313,7 @@ export class World {
     this.checkGates(prevZ, out);
     this.collectPickups(out);
     this.firePendingWaves();
+    this.updateSurges(dt);
     if (this.pendingMidBoss && this.squad.z >= this.pendingMidBoss.z) {
       const spec = this.pendingMidBoss;
       this.pendingMidBoss = null;
@@ -447,6 +476,36 @@ export class World {
   private currentHpScale(): number {
     const t = Math.pow(Math.max(0, Math.min(1, this.squad.z / Math.max(1, this.arenaZ))), 0.85);
     return 1 + (this.level.enemyHpScale - 1) * t;
+  }
+
+  /**
+   * 尸潮涌现：到达触发点后，把整波拆成 `pulses` 份，在 `seconds` 秒里
+   * 一份一份地放出来。每一份都按当前进度重算血量缩放，所以越往后涌出来的
+   * 越硬——尸潮是"越来越顶不住"，而不是一次性一堵墙。
+   */
+  private updateSurges(dt: number): void {
+    for (let i = this.pendingSurges.length - 1; i >= 0; i--) {
+      const p = this.pendingSurges[i]!;
+      if (this.squad.z < p.z) continue;
+      this.pendingSurges.splice(i, 1);
+      this.surges.push({
+        wave: p.wave,
+        left: p.pulses,
+        interval: p.seconds / Math.max(1, p.pulses),
+        timer: 0,
+      });
+    }
+    for (let i = this.surges.length - 1; i >= 0; i--) {
+      const s = this.surges[i]!;
+      s.timer -= dt;
+      if (s.timer > 0) continue;
+      s.timer = s.interval;
+      s.left--;
+      this.enemies.hpScale = this.currentHpScale();
+      // 每一拨往前推一点点距离，读起来像"后面还有一层正在压上来"
+      this.enemies.spawnWave(s.wave, this.squad.z, this.squad.x);
+      if (s.left <= 0) this.surges.splice(i, 1);
+    }
   }
 
   private firePendingWaves(): void {

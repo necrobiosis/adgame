@@ -239,6 +239,21 @@ export const AIRSTRIKE = {
   splashEdge: 0.45,
 } as const;
 
+/**
+ * 每只僵尸出生时的体型抖动范围。
+ *
+ * 之前同一种怪长得一模一样，一片尸潮看过去像复制粘贴。给每只一个固定的
+ * 体型系数，人群里就有高有矮有壮有瘦——这是"尸潮"和"方阵"最直观的区别。
+ * 精英和 Boss 抖动幅度收窄：它们的体型本身就是难度提示，不能因为随机
+ * 让玩家误判这只到底是什么。
+ */
+export const SIZE_JITTER = {
+  /** 杂兵（walker/runner/spitter/leaper）。 */
+  trash: 0.3,
+  /** 精英（screamer/brute/titan/armored）。 */
+  elite: 0.12,
+} as const;
+
 /** 嚎叫者光环：半径内的僵尸速度与伤害倍率。 */
 export const SCREAMER_AURA = { radius: 12, speedMul: 1.45, damageMul: 1.35 } as const;
 
