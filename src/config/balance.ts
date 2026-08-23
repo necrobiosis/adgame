@@ -282,6 +282,78 @@ export const BOSS = {
 // ─────────────────────────── 中 Boss ───────────────────────────
 
 /**
+ * 五个 Boss 各自的招式组合。
+ *
+ * 之前五关共用同一套"践踏 + 召唤 + 冲锋 + 落雷"，换的只有血量和名字——
+ * 打完第一关，后面四个 Boss 就没有任何新东西要学了。现在每个 Boss 有一套
+ * 自己的招式，而且每一招都在考不同的东西：
+ *
+ *  · overlord 深渊领主 —— 教学：一个圆圈 AoE + 召唤，学会"看地上的圈就走开"
+ *  · plague   腐化巨兽 —— 半场毒爆左右交替，逼你踩着节奏来回横跳
+ *  · maw      尸山之王 —— 一堵带缺口的火墙推过来，必须站进缺口里
+ *  · apostle  猩红使徒 —— 一道扫过整条路的光束，得一直跑在它前面
+ *  · ender    终末之主 —— 潜地无敌 + 放尸潮，浮上来之后前面几招轮着上
+ */
+export type BossKind = 'overlord' | 'plague' | 'maw' | 'apostle' | 'ender';
+
+export type BossAbility =
+  | { readonly a: 'slam'; readonly cd: number }
+  | { readonly a: 'summon'; readonly cd: number; readonly count: number }
+  | { readonly a: 'charge'; readonly cd: number }
+  | { readonly a: 'lightning'; readonly cd: number }
+  /** 半场毒爆：整条路的左半或右半整块爆掉，左右交替。 */
+  | { readonly a: 'quake'; readonly cd: number; readonly telegraph: number; readonly damage: number; readonly depth: number }
+  /** 火墙推进：一堵横贯路面的墙压过来，只有一个缺口是安全的。 */
+  | { readonly a: 'breath'; readonly cd: number; readonly telegraph: number; readonly damage: number; readonly gapHalf: number }
+  /** 扫射光束：从 Boss 身上甩出一道扫过整条路的光束。 */
+  | { readonly a: 'beam'; readonly cd: number; readonly telegraph: number; readonly damage: number; readonly halfWidth: number }
+  /** 潜地：一段时间无敌并持续放尸潮。 */
+  | { readonly a: 'submerge'; readonly cd: number; readonly seconds: number; readonly perSecond: number };
+
+export interface BossPlan {
+  readonly abilities: readonly BossAbility[];
+}
+
+export const BOSS_PLANS: Record<BossKind, BossPlan> = {
+  overlord: {
+    abilities: [
+      { a: 'slam', cd: 6.5 },
+      { a: 'summon', cd: 9.5, count: 26 },
+      { a: 'charge', cd: 11 },
+    ],
+  },
+  plague: {
+    abilities: [
+      { a: 'quake', cd: 5.2, telegraph: 1.25, damage: 52, depth: 30 },
+      { a: 'slam', cd: 8.5 },
+      { a: 'summon', cd: 11, count: 30 },
+    ],
+  },
+  maw: {
+    abilities: [
+      { a: 'breath', cd: 7.0, telegraph: 1.5, damage: 78, gapHalf: 3.4 },
+      { a: 'summon', cd: 8.0, count: 40 },
+      { a: 'slam', cd: 9.5 },
+    ],
+  },
+  apostle: {
+    abilities: [
+      { a: 'beam', cd: 7.5, telegraph: 1.35, damage: 46, halfWidth: 2.6 },
+      { a: 'lightning', cd: 8.5 },
+      { a: 'charge', cd: 12 },
+    ],
+  },
+  ender: {
+    abilities: [
+      { a: 'submerge', cd: 15, seconds: 5, perSecond: 14 },
+      { a: 'beam', cd: 8.5, telegraph: 1.2, damage: 54, halfWidth: 2.8 },
+      { a: 'quake', cd: 9.0, telegraph: 1.1, damage: 60, depth: 32 },
+      { a: 'slam', cd: 10 },
+    ],
+  },
+};
+
+/**
  * 中 boss 只有一个技能：贴近方阵后周期性地放一圈以自身为中心的冲击波。
  * 没有阶段、没有狂暴——它不halt 方阵推进，就是行进路上一只格外硬、
  * 会炸人的强化精英，机制刻意比终极 Boss 简单很多。

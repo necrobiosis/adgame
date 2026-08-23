@@ -48,6 +48,11 @@ export interface Enemy {
   damageMul: number;
   /** true = 由脚本（Boss）驱动移动，跳过默认 AI。 */
   scripted: boolean;
+  /**
+   * 免疫一切伤害（终末之主潜地期间）。
+   * 集火目标池也会跳过它，否则方阵会对着一个打不动的目标空放整段火力。
+   */
+  invulnerable?: boolean;
   /** 死亡后的倒地动画剩余时间；> 0 时仍需渲染。 */
   dying: number;
 
@@ -146,6 +151,14 @@ export type SimEventType =
   | 'bossCharge'
   | 'bossLightning'    // 雷击预警出现
   | 'bossLightningHit' // 落雷
+  | 'bossQuake'        // 半场毒爆预警
+  | 'bossQuakeHit'
+  | 'bossBreath'       // 火墙预警（x 是安全缺口的中心）
+  | 'bossBreathHit'
+  | 'bossBeam'         // 扫射光束起手
+  | 'bossBeamHit'
+  | 'bossSubmerge'     // Boss 潜地（无敌 + 持续放尸潮）
+  | 'bossEmerge'       // Boss 浮出
   | 'midbossSpawn'
   | 'midbossAbility'    // 冲击波预警出现
   | 'midbossAbilityHit' // 冲击波命中

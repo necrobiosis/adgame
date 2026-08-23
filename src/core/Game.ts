@@ -349,6 +349,18 @@ export class Game {
         case 'bossSlam': this.audio.telegraph(BOSS.slam.telegraph, 'slam', pan(ev.x)); break;
         case 'bossCharge': this.audio.telegraph(BOSS.charge.telegraph, 'charge', pan(ev.x)); break;
         case 'bossLightning': this.audio.telegraph(BOSS.lightning.telegraph, 'lightning', pan(ev.x)); break;
+        // 三种新招各有各的蓄力声，闭着眼睛也能分出来是哪一招
+        case 'bossQuake': this.audio.telegraph(1.25, 'shock', pan(ev.x)); break;
+        case 'bossBreath': this.audio.telegraph(1.5, 'slam', pan(ev.x)); break;
+        case 'bossBeam': this.audio.telegraph(1.35, 'lightning', pan(ev.x)); break;
+        case 'bossQuakeHit':
+        case 'bossBreathHit':
+        case 'bossBeamHit': this.audio.explosion(pan(ev.x)); break;
+        case 'bossSubmerge': this.audio.bossRoar(pan(ev.x)); break;
+        case 'bossEmerge':
+          this.audio.bossRoar(pan(ev.x));
+          this.floats.flash('#e6d8ff');
+          break;
         case 'midbossAbility': this.audio.telegraph(MIDBOSS.shock.telegraph, 'shock', pan(ev.x)); break;
         case 'bossSlamHit':
         case 'midbossAbilityHit': this.audio.explosion(pan(ev.x)); break;
@@ -375,6 +387,10 @@ export class Game {
         case 'blockDestroyed': this.hitstop = Math.max(this.hitstop, 0.06); break;
         case 'strikeImpact': this.hitstop = Math.max(this.hitstop, 0.04); break;
         case 'midbossAbilityHit': this.hitstop = Math.max(this.hitstop, 0.05); break;
+        case 'bossQuakeHit':
+        case 'bossBreathHit':
+        case 'bossBeamHit': this.hitstop = Math.max(this.hitstop, 0.07); break;
+        case 'bossEmerge': this.hitstop = Math.max(this.hitstop, 0.08); break;
         default: break;
       }
     }

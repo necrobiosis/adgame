@@ -326,7 +326,7 @@ export class World {
       this.enemies.hpScale = this.level.enemyHpScale;
       const beat = this.level.beats.find((b) => b.t === 'boss');
       if (beat && beat.t === 'boss') {
-        this.boss.spawn(this.enemies, this.arenaZ, beat.hp, beat.scale, beat.name, out);
+        this.boss.spawn(this.enemies, this.arenaZ, beat.hp, beat.scale, beat.name, beat.kind, out);
       }
     }
 

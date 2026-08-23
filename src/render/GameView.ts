@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   ENEMY_STATS,
+  type BossKind,
   MAX_RENDERED_SOLDIERS,
   ROAD_HALF,
   SLOT_SPACING_Z,
@@ -17,6 +18,7 @@ import { Dragon } from './env/Dragon';
 import { createLights, createSky, createSkyEnvironment, skyForLevel, type SceneLights, type SkyTheme } from './env/Sky';
 import { createProps, propsForLevel } from './env/Props';
 import { Weather, type WeatherKind } from './env/Weather';
+import { AreaTelegraph } from './fx/AreaTelegraph';
 import { Decals } from './fx/Decals';
 import { FlashLights } from './fx/FlashLights';
 import { GoldBurst } from './fx/GoldBurst';
@@ -57,6 +59,15 @@ import { cannonGeometry, coinPileGeometry, shellGeometry } from './units/PropGeo
  * 那一批**画出来。被舍弃的都在百米开外、埋在雾里，屏幕上只有几个像素，
  * 而模拟层里它们照常存在、照常推进、照常啃人，玩法一点没变。
  */
+/** 每个 Boss 的熔纹发光色——和它的招式配色对得上。 */
+const BOSS_CRACK: Record<BossKind, number> = {
+  overlord: 0xff5a1a,
+  plague: 0x9ce85a,
+  maw: 0xff9a3c,
+  apostle: 0xff3a44,
+  ender: 0xc9a8ff,
+};
+
 const CROWD_CAPACITY: Record<EnemyKind, number> = {
   walker: 360,
   runner: 200,
@@ -173,6 +184,10 @@ export class GameView {
   private readonly lightning = new Lightning();
   /** 中 boss 冲击波预警——独立于主 Boss 的 ring，避免两者同屏时互相抢用。 */
   private readonly midRing = new TelegraphRing();
+  /** 矩形/条状预警：半场毒爆、带缺口的火墙、扫射光束共用这一个池。 */
+  private readonly areaTg = new AreaTelegraph(6);
+  /** 当前这一关的 Boss 种类——换关时要重建 Boss 的几何体。 */
+  private bossKind: BossKind = 'overlord';
   /** 上一帧 Boss 的 z——用来判断这一帧是不是正在高速冲锋，从而甩出拖尾电弧。 */
   private lastBossZ = 0;
   private hasLastBossZ = false;
@@ -222,7 +237,7 @@ export class GameView {
       brute: bruteGeometry,
       titan: titanGeometry,
       midboss: midBossGeometry,
-      boss: bossGeometry,
+      boss: (bq) => bossGeometry(bq, this.bossKind),
       spitter: spitterGeometry,
       leaper: leaperGeometry,
       armored: armoredGeometry,
@@ -287,6 +302,38 @@ export class GameView {
     this.scene.add(this.soldiers.mesh);
   }
 
+  /**
+   * 换关时只重建 Boss 那一个批次。
+   * 五关的 Boss 外形不同，而几何体是在 buildCharacters() 里一次性建好的——
+   * 不重建的话，第五关会顶着第一关那只的模型出场。
+   */
+  private rebuildBoss(kind: BossKind): void {
+    if (kind === this.bossKind && this.batches.has('boss')) return;
+    this.bossKind = kind;
+    const old = this.batches.get('boss');
+    if (old) {
+      this.scene.remove(old.mesh);
+      old.dispose();
+    }
+    const q: BuildQuality = {
+      radialSegments: this.r.quality.radialSegments,
+      lengthDetail: this.r.quality.lengthDetail,
+      accessory: this.r.quality.accessory,
+    };
+    const geo = bossGeometry(q, kind);
+    const set = createCrowdMaterial({
+      emissive: 0x180502, roughness: 0.62, metalness: 0.12,
+      wearColor: 0x241008, wear: 0.14, grungeColor: 0x0a0503, grunge: 0.22, ao: 0.75,
+      crackGlow: true, crackColor: BOSS_CRACK[kind], crackStrength: 4.5,
+    });
+    set.setPivots(geometryPivots(geo));
+    this.matSets.push(set);
+    const batch = new CrowdBatch(geo, set.material, CROWD_CAPACITY.boss, set.depthMaterial);
+    batch.setCastShadow(this.r.quality.shadowMap > 0);
+    this.scene.add(batch.mesh);
+    this.batches.set('boss', batch);
+  }
+
   /** 武器等级变化（门事件触发）时只重建士兵批次，不动其它任何东西。 */
   private rebuildSoldiers(tier: number): void {
     this.soldierWeaponTier = tier;
@@ -339,7 +386,7 @@ export class GameView {
       this.bars.mesh, this.tracers.mesh, this.sparks.mesh, this.smoke.mesh, this.gold.mesh,
       this.ring.mesh, this.lane.mesh, this.reticle.mesh, this.lightning.group, this.midRing.mesh,
       this.ambientSmoke.mesh, this.dragon.group,
-      this.decals.mesh, this.waves.mesh, this.flashes.group, this.gibs.mesh,
+      this.decals.mesh, this.waves.mesh, this.flashes.group, this.gibs.mesh, this.areaTg.mesh,
     );
   }
 
@@ -372,6 +419,8 @@ export class GameView {
   buildLevel(world: World): void {
     this.disposeLevel();
     const root = new THREE.Group();
+    const bossBeat = world.level.beats.find((b) => b.t === 'boss');
+    if (bossBeat && bossBeat.t === 'boss') this.rebuildBoss(bossBeat.kind);
     const theme: SkyTheme = skyForLevel(world.level.id);
     const flavour = LEVEL_FLAVOUR[Math.max(0, Math.min(LEVEL_FLAVOUR.length - 1, world.level.id - 1))]!;
     const q = this.r.quality;
@@ -804,6 +853,36 @@ export class GameView {
       this.reticle.hide();
     }
 
+    // 矩形/条状预警：半场毒爆、带缺口的火墙、扫射光束
+    this.areaTg.begin();
+    if (tg && tg.kind === 'quake' && tg.x0 !== undefined && tg.x1 !== undefined) {
+      this.areaTg.push((tg.x0 + tg.x1) / 2, tg.z, tg.x1 - tg.x0, (tg.halfZ ?? 12) * 2, tg.t, 0x9ce85a);
+      if (this.rng.next() < 0.6) {
+        const rx = tg.x0 + this.rng.next() * (tg.x1 - tg.x0);
+        const rz = tg.z + (this.rng.next() - 0.5) * (tg.halfZ ?? 12) * 2;
+        this.sparks.burst(rx, 0.1, rz, {
+          count: 1, color: 0xaef05a, speed: [0.4, 1.2], size: [0.3, 0.6], life: [0.3, 0.6], grow: -0.4, lift: 2.6, drag: 0.6,
+        });
+      }
+    } else if (tg && tg.kind === 'breath' && tg.gapX !== undefined && tg.gapW !== undefined) {
+      // 画成"缺口两侧的两条火墙"——安全的那一段刻意留空，一眼看得出往哪儿钻
+      const halfZ = (tg.halfZ ?? 3) * 2;
+      const leftW = (tg.gapX - tg.gapW) - -ROAD_HALF;
+      const rightW = ROAD_HALF - (tg.gapX + tg.gapW);
+      if (leftW > 0.2) this.areaTg.push(-ROAD_HALF + leftW / 2, tg.z, leftW, halfZ, tg.t, 0xff7a2a);
+      if (rightW > 0.2) this.areaTg.push(ROAD_HALF - rightW / 2, tg.z, rightW, halfZ, tg.t, 0xff7a2a);
+    } else if (tg && tg.kind === 'beam' && tg.angle !== undefined) {
+      // 从 Boss 脚下甩出去的一条长带，随读条一路扫过整条路
+      const len = 90;
+      const a = tg.angle;
+      this.areaTg.push(
+        tg.x + Math.sin(a) * (len / 2),
+        tg.z - Math.cos(a) * (len / 2),
+        tg.radius * 2, len, tg.t, 0xff3a44, a,
+      );
+    }
+    this.areaTg.end();
+
     // 冲锋没有独立的"正在冲锋"事件——用这一帧 z 方向的瞬时速度反推是不是在
     // 高速冲锋，是的话身后随手甩几道电弧拖尾，读起来像雷霆附体
     if (b && b.alive && this.hasLastBossZ && dt > 0) {
@@ -1078,6 +1157,79 @@ export class GameView {
           this.waves.spawn(ev.x!, ev.z!, 0.8, (ev.radius ?? 5.2) * 2.4, 0xbfefff, 0.5, 1.5);
           this.flashes.flash(ev.x!, 2.4, ev.z!, 0xbfefff, 220, 0.26);
           this.decals.add('scorch', ev.x!, ev.z!, (ev.radius ?? 5.2) * 1.5, 0.52);
+          break;
+        }
+        case 'bossQuakeHit': {
+          // 半场毒爆：沿着那半条路铺一排爆点，读起来是"整块地掀起来"
+          const side = (ev.amount ?? 1) > 0 ? 1 : -1;
+          this.camera.punch(0.85);
+          for (let i = 0; i < 5; i++) {
+            const px = side * (ROAD_HALF * (0.1 + i * 0.2));
+            const pz = ev.z! + (i - 2) * 5;
+            this.sparks.burst(px, 0.4, pz, {
+              count: 16, color: 0xd8ff9a, color2: 0x2f5010, speed: [5, 16], size: [0.5, 1.4],
+              life: [0.3, 0.65], grow: 1.4, drag: 2.4, stretch: 2.0,
+            });
+            this.waves.spawn(px, pz, 0.6, 8, 0x9ce85a, 0.5, 1.1);
+            this.decals.add('ichor', px, pz, 6, 0.5);
+          }
+          this.flashes.flash(side * ROAD_HALF * 0.5, 2, ev.z!, 0x9ce85a, 130, 0.3);
+          break;
+        }
+        case 'bossBreathHit': {
+          // 火墙：缺口以外整条烧起来
+          this.camera.punch(0.9);
+          for (let i = 0; i < 7; i++) {
+            const px = -ROAD_HALF + (i / 6) * ROAD_HALF * 2;
+            if (Math.abs(px - ev.x!) < (ev.radius ?? 3)) continue; // 缺口不烧
+            this.sparks.burst(px, 0.5, ev.z!, {
+              count: 18, color: 0xfff0b0, color2: 0xc42a08, speed: [6, 18], size: [0.6, 1.6],
+              life: [0.3, 0.7], grow: 1.8, drag: 2.2, stretch: 2.6,
+            });
+            this.smoke.burst(px, 0.6, ev.z!, {
+              count: 5, color: 0x8b857e, color2: 0x35322e, speed: [2, 6], size: [1.2, 2.4],
+              life: [0.6, 1.2], grow: 3, drag: 1.8, lift: 2, fadeIn: 0.18,
+            });
+            this.decals.add('scorch', px, ev.z!, 6, 0.4);
+          }
+          this.flashes.flash(0, 2.4, ev.z!, 0xff8a3a, 170, 0.34);
+          break;
+        }
+        case 'bossBeamHit': {
+          // 光束：沿着那条线一路炸过去
+          this.camera.punch(0.7);
+          const a = ev.amount ?? 0;
+          for (let i = 1; i <= 9; i++) {
+            const d = i * 7;
+            const px = ev.x! + Math.sin(a) * d;
+            const pz = ev.z! - Math.cos(a) * d;
+            this.sparks.burst(px, 0.5, pz, {
+              count: 10, color: 0xffd0d4, color2: 0xb0121a, speed: [4, 13], size: [0.5, 1.2],
+              life: [0.25, 0.5], grow: 1.2, drag: 2.6, stretch: 2.8,
+            });
+            if (i % 3 === 0) this.decals.add('scorch', px, pz, 5, 0.4);
+          }
+          this.flashes.flash(ev.x!, 3, ev.z!, 0xff3a44, 150, 0.28);
+          break;
+        }
+        case 'bossSubmerge': {
+          this.camera.punch(0.6);
+          this.smoke.burst(ev.x!, 0.6, ev.z!, {
+            count: 26, color: 0x8a7ab0, color2: 0x241c33, speed: [4, 13], size: [1.8, 3.6],
+            life: [0.8, 1.6], grow: 4, drag: 1.6, lift: 1.4, fadeIn: 0.2,
+          });
+          this.waves.spawn(ev.x!, ev.z!, 1.2, 20, 0xc9a8ff, 0.8, 1.2);
+          this.floats.push({ text: '潜地 · 免疫伤害', color: '#c9a8ff', x: ev.x!, y: 5, z: ev.z!, big: true });
+          break;
+        }
+        case 'bossEmerge': {
+          this.camera.punch(1.0);
+          this.sparks.burst(ev.x!, 0.6, ev.z!, {
+            count: 46, color: 0xeaddff, color2: 0x4a2a80, speed: [8, 24], size: [0.7, 1.8],
+            life: [0.35, 0.75], grow: 1.8, drag: 2.4, stretch: 2.4,
+          });
+          this.waves.spawn(ev.x!, ev.z!, 0.8, 24, 0xc9a8ff, 0.7, 1.5);
+          this.flashes.flash(ev.x!, 3, ev.z!, 0xc9a8ff, 190, 0.34);
           break;
         }
         case 'midbossSpawn': {

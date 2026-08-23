@@ -97,7 +97,7 @@ export class EnemyPool {
    * 这条区分是"火炮门"和"武器门"第一次有本质差别的地方。
    */
   damage(e: Enemy, amount: number, out: SimEvent[], splash = false): number {
-    if (!e.alive) return 0;
+    if (!e.alive || e.invulnerable) return 0;
     const resist = splash ? 0 : (ENEMY_STATS[e.kind].bulletResist ?? 0);
     amount *= 1 - resist;
     const dealt = Math.min(e.hp, amount);
@@ -413,7 +413,7 @@ export class EnemyPool {
     out.length = 0;
     const r2 = range * range;
     for (const e of this.list) {
-      if (!e.alive) continue;
+      if (!e.alive || e.invulnerable) continue;
       if (e.z < squad.z - 6) continue; // 已经冲过方阵的不再优先
       const dx = e.x - squad.x;
       const dz = e.z - squad.z;

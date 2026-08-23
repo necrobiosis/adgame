@@ -1,4 +1,4 @@
-import type { EnemyKind } from './balance';
+import type { BossKind, EnemyKind } from './balance';
 
 /** 门的效果类型。 */
 export type GateType =
@@ -84,7 +84,7 @@ export type Beat =
       readonly tall?: boolean;
     }
   | { readonly t: 'midboss'; readonly hp: number; readonly scale: number; readonly name: string }
-  | { readonly t: 'boss'; readonly hp: number; readonly scale: number; readonly name: string };
+  | { readonly t: 'boss'; readonly hp: number; readonly scale: number; readonly name: string; readonly kind: BossKind };
 
 export interface LevelDef {
   readonly id: number;
@@ -148,7 +148,7 @@ const LEVEL_1: LevelDef = {
     { t: 'run', len: 70 },
     { t: 'wave', wave: swarm(200, 20) },
     { t: 'run', len: 58 },
-    { t: 'boss', hp: 36000, scale: 1.0, name: '深渊领主' },
+    { t: 'boss', hp: 36000, scale: 1.0, name: '深渊领主', kind: 'overlord' },
   ],
 };
 
@@ -176,7 +176,7 @@ const LEVEL_2: LevelDef = {
     { t: 'run', len: 64 },
     { t: 'wave', wave: swarm(300, 40) },
     { t: 'run', len: 58 },
-    { t: 'boss', hp: 95000, scale: 1.1, name: '腐化巨兽' },
+    { t: 'boss', hp: 95000, scale: 1.1, name: '腐化巨兽', kind: 'plague' },
   ],
 };
 
@@ -204,7 +204,7 @@ const LEVEL_3: LevelDef = {
     { t: 'run', len: 61 },
     { t: 'surge', seconds: 13, pulses: 7, wave: swarm(52, 7, 30) },
     { t: 'run', len: 55 },
-    { t: 'boss', hp: 160000, scale: 1.2, name: '尸山之王' },
+    { t: 'boss', hp: 160000, scale: 1.2, name: '尸山之王', kind: 'maw' },
   ],
 };
 
@@ -232,7 +232,7 @@ const LEVEL_4: LevelDef = {
     { t: 'run', len: 58 },
     { t: 'surge', seconds: 15, pulses: 8, wave: swarm(53, 9, 32) },
     { t: 'run', len: 52 },
-    { t: 'boss', hp: 260000, scale: 1.35, name: '猩红使徒' },
+    { t: 'boss', hp: 260000, scale: 1.35, name: '猩红使徒', kind: 'apostle' },
   ],
 };
 
@@ -260,7 +260,7 @@ const LEVEL_5: LevelDef = {
     { t: 'run', len: 67 },
     { t: 'surge', seconds: 18, pulses: 9, wave: elite([{ kind: 'brute', count: 1 }, { kind: 'walker', count: 30 }, { kind: 'runner', count: 6 }], 32) },
     { t: 'run', len: 55 },
-    { t: 'boss', hp: 420000, scale: 1.55, name: '终末之主' },
+    { t: 'boss', hp: 420000, scale: 1.55, name: '终末之主', kind: 'ender' },
   ],
 };
 

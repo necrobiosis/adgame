@@ -3,6 +3,7 @@ import { chamferBox, lathe, merge, paint, pipe, place, plate, sweep, type SweepS
 import { bakeSurface, jitter, weldSmooth } from '../geom/deform';
 import { BONE, assignSkin, buildSkeleton, pivots, type Skeleton } from './skeleton';
 import { Rng } from '../../core/Rng';
+import type { BossKind } from '../../config/balance';
 
 /**
  * 角色几何体。
@@ -717,15 +718,62 @@ export function midBossGeometry(q: BuildQuality): THREE.BufferGeometry {
   }, q);
 }
 
-export function bossGeometry(q: BuildQuality): THREE.BufferGeometry {
-  return buildHumanoid({
-    height: 2.9, build: 1.95, hunch: 0.22, reach: -0.6, horns: true, claws: true, spikes: true, decayed: true,
-    eyes: 'glow', mouth: 'fanged', seed: 97,
-    // 近黑的炭化甲壳 + 骨白角爪的强对比；"亮色"不再来自皮肤本身，而是
-    // CrowdMaterial 里叠加在磨损棱线上的熔纹自发光（见 GameView 的 crackGlow）
-    palette: { skin: 0x231210, cloth: 0x160b09, dark: 0x0d0503, accent: 0xf5e8d0, bone: 0xffeede },
-  }, q);
+/**
+ * 五个 Boss 各自的外形。
+ *
+ * 之前五关共用同一个模型，只有体型倍率不同——玩家看到第五关的"终末之主"，
+ * 认出来的其实还是第一关那只。现在每一只的剪影、配色和配件都不一样，
+ * 而且和它的招式对得上：会喷火墙的嘴上有獠牙，会扫光束的眼睛在发光，
+ * 会潜地的通体漆黑长满骨刺。
+ */
+export function bossGeometry(q: BuildQuality, kind: BossKind = 'overlord'): THREE.BufferGeometry {
+  switch (kind) {
+    // 深渊领主：教学关的门面。魁梧、对称、一眼认得出是"Boss"。
+    case 'overlord':
+      return buildHumanoid({
+        height: 2.9, build: 1.95, hunch: 0.22, reach: -0.6, horns: true, claws: true, spikes: true, decayed: true,
+        eyes: 'glow', mouth: 'fanged', seed: 97,
+        // 近黑的炭化甲壳 + 骨白角爪的强对比；"亮色"不再来自皮肤本身，而是
+        // CrowdMaterial 里叠加在磨损棱线上的熔纹自发光（见 GameView 的 crackGlow）
+        palette: { skin: 0x231210, cloth: 0x160b09, dark: 0x0d0503, accent: 0xf5e8d0, bone: 0xffeede },
+      }, q);
+
+    // 腐化巨兽：肿胀、佝偻、病态的黄绿——半场毒爆的施法者，
+    // 体型比领主更臃肿，读起来像一个随时会炸开的脓包。
+    case 'plague':
+      return buildHumanoid({
+        height: 2.75, build: 2.35, hunch: 0.55, reach: -0.5, claws: true, spikes: true, decayed: true,
+        eyes: 'glow', mouth: 'open', gaunt: false, seed: 131,
+        palette: { skin: 0x2c3a1c, cloth: 0x1d2612, dark: 0x0e1408, accent: 0xc8e070, bone: 0xdfe8b0 },
+      }, q);
+
+    // 尸山之王：最高最瘦，长角、獠牙外露——喷火墙的那张嘴要一眼看得见。
+    case 'maw':
+      return buildHumanoid({
+        height: 3.35, build: 1.62, hunch: 0.16, reach: -0.75, horns: true, claws: true, decayed: true,
+        eyes: 'glow', mouth: 'fanged', gaunt: true, seed: 173,
+        palette: { skin: 0x3a2318, cloth: 0x24140d, dark: 0x120906, accent: 0xff9a3c, bone: 0xffd9a0 },
+      }, q);
+
+    // 猩红使徒：直立、修长、几乎不佝偻——发光的眼睛是光束的来源，
+    // 全身猩红配骨白，和前面几只的土色系彻底拉开。
+    case 'apostle':
+      return buildHumanoid({
+        height: 3.05, build: 1.7, hunch: 0.06, reach: -0.4, horns: true, spikes: true, decayed: true,
+        eyes: 'glow', mouth: 'closed', seed: 211,
+        palette: { skin: 0x5a1418, cloth: 0x360b0e, dark: 0x1a0405, accent: 0xff4a52, bone: 0xffe0d8 },
+      }, q);
+
+    // 终末之主：最大的一只，通体漆黑长满骨刺，紫白的裂纹。
+    case 'ender':
+      return buildHumanoid({
+        height: 3.5, build: 2.15, hunch: 0.3, reach: -0.7, horns: true, claws: true, spikes: true, decayed: true,
+        eyes: 'glow', mouth: 'fanged', seed: 251,
+        palette: { skin: 0x1a1424, cloth: 0x0f0a17, dark: 0x06040a, accent: 0xc9a8ff, bone: 0xeadcff },
+      }, q);
+  }
 }
+
 
 export function soldierGeometry(q: BuildQuality, weaponTier: number): THREE.BufferGeometry {
   return buildHumanoid({
