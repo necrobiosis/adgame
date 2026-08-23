@@ -329,7 +329,10 @@ export class Game {
         case 'blockHit': this.audio.blockHit(pan(ev.x)); break;
         case 'blockDestroyed': this.audio.blockBreak(pan(ev.x)); break;
         case 'kill': this.audio.zombieDie(pan(ev.x)); break;
-        case 'soldierDown': this.audio.soldierDown(pan(ev.x)); break;
+        case 'soldierDown':
+          this.audio.soldierDown(pan(ev.x));
+          this.floats.damage();
+          break;
         case 'goldPickup': {
           const t = world.stats.elapsed;
           this.coinStreak = t - this.coinStreakAt < 2.2 ? this.coinStreak + 1 : 0;

@@ -148,7 +148,10 @@ export class HUD {
 export class FloatingLayer {
   private readonly root: HTMLElement;
   private readonly flashEl: HTMLElement;
+  private readonly vignetteEl: HTMLElement;
   private live = 0;
+  /** 暗角的节流：一波尸潮里几十个人同时倒下，不能每个都触发一次动画。 */
+  private lastVignette = 0;
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement('div');
@@ -157,6 +160,19 @@ export class FloatingLayer {
     this.flashEl = document.createElement('div');
     this.flashEl.className = 'screen-flash';
     this.root.appendChild(this.flashEl);
+    this.vignetteEl = document.createElement('div');
+    this.vignetteEl.className = 'damage-vignette';
+    this.root.appendChild(this.vignetteEl);
+  }
+
+  /** 掉人了：四周压一下红。 */
+  damage(): void {
+    const now = performance.now();
+    if (now - this.lastVignette < 420) return;
+    this.lastVignette = now;
+    this.vignetteEl.classList.remove('go');
+    void this.vignetteEl.offsetWidth;
+    this.vignetteEl.classList.add('go');
   }
 
   /** 全屏白闪一下——落雷这种"天降打击"需要一瞬间的曝光过量感。 */
@@ -184,7 +200,12 @@ export class FloatingLayer {
   }
 
   clear(): void {
-    this.root.replaceChildren();
+    // 只清飘字，别把常驻的覆盖层（全屏闪、受击暗角）一起端掉——
+    // replaceChildren() 会把它们也删掉，之后 flash()/damage() 就都作用在
+    // 已经脱离文档的节点上，屏幕上什么都不会发生。
+    for (const el of [...this.root.children]) {
+      if (el !== this.flashEl && el !== this.vignetteEl) el.remove();
+    }
     this.live = 0;
   }
 }

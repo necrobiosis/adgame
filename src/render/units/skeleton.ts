@@ -191,8 +191,12 @@ int boneParent(int b) {
  *
  * state: 0 = 行走，1 = 攻击
  * flash: 受击闪白强度，顺便当作"刚挨了一下"的信号驱动一个退缩姿势
+ * pose:  0 = 僵尸（张牙舞爪地扑），1 = 士兵（端枪射击）
+ *
+ * 士兵和僵尸的"攻击"完全是两回事：僵尸是抡胳膊，士兵是端起枪顶住肩膀。
+ * 之前两边共用同一套抡胳膊的姿势，士兵交火时看起来像在挠人。
  */
-vec3 boneAngles(int b, float ph, float state, float flash) {
+vec3 boneAngles(int b, float ph, float state, float flash, float pose) {
   float sw = sin(ph);
   // 受击退缩：上半身往后仰、脑袋偏开，幅度很小但足以读出"疼"
   float hit = clamp(flash, 0.0, 1.0);
@@ -202,18 +206,29 @@ vec3 boneAngles(int b, float ph, float state, float flash) {
   // 膝盖只能往一个方向弯
   if (b == BONE_SHIN_L)  return vec3(-max(0.0, -sin(ph + 0.9)) * 1.05, 0.0, 0.0);
   if (b == BONE_SHIN_R)  return vec3(-max(0.0,  sin(ph + 0.9)) * 1.05, 0.0, 0.0);
-  // 手臂：走路时前后摆，攻击时抬起来抡；再叠一点点外张，不再是贴着身体的两根棍
-  if (b == BONE_ARM_L)   return vec3(mix(-sw * 0.42, -1.05 + sin(ph * 3.0) * 0.45, state),
-                                     0.0,
-                                     mix(0.10, 0.30, state));
-  if (b == BONE_ARM_R)   return vec3(mix( sw * 0.42, -1.05 + sin(ph * 3.0 + 1.7) * 0.45, state),
-                                     0.0,
-                                     mix(-0.10, -0.30, state));
-  if (b == BONE_FORE_L)  return vec3(-0.3 - max(0.0,  sw) * 0.32 - state * 0.35, 0.0, 0.0);
-  if (b == BONE_FORE_R)  return vec3(-0.3 - max(0.0, -sw) * 0.32 - state * 0.35, 0.0, 0.0);
+  // 射击姿势：两臂端平指向正前方，右臂略收把枪托顶在肩上，
+  // 再叠一个高频小幅的后坐抖动——枪在响，身体要跟着一顿一顿
+  float recoil = sin(ph * 9.0) * 0.055;
+  // 手臂：走路时前后摆；攻击时僵尸抡、士兵端枪
+  if (b == BONE_ARM_L) {
+    float zombie = -1.05 + sin(ph * 3.0) * 0.45;
+    float rifle  = -1.32 + recoil;
+    return vec3(mix(-sw * 0.42, mix(zombie, rifle, pose), state),
+                mix(0.0, -0.26, state * pose),
+                mix(0.10, mix(0.30, 0.16, pose), state));
+  }
+  if (b == BONE_ARM_R) {
+    float zombie = -1.05 + sin(ph * 3.0 + 1.7) * 0.45;
+    float rifle  = -1.18 + recoil;
+    return vec3(mix( sw * 0.42, mix(zombie, rifle, pose), state),
+                mix(0.0, -0.34, state * pose),
+                mix(-0.10, mix(-0.30, -0.10, pose), state));
+  }
+  if (b == BONE_FORE_L)  return vec3(-0.3 - max(0.0,  sw) * 0.32 - state * mix(0.35, 0.62, pose), 0.0, 0.0);
+  if (b == BONE_FORE_R)  return vec3(-0.3 - max(0.0, -sw) * 0.32 - state * mix(0.35, 0.30, pose), 0.0, 0.0);
   // 躯干：走路时随步伐扭腰 + 侧倾，攻击时拧向出手方向
-  if (b == BONE_CHEST)   return vec3(sin(ph * 2.0) * 0.04 - hit * 0.22,
-                                     -sw * mix(0.09, 0.20, state),
+  if (b == BONE_CHEST)   return vec3(sin(ph * 2.0) * 0.04 - hit * 0.22 - state * pose * 0.06,
+                                     -sw * mix(0.09, mix(0.20, 0.05, pose), state),
                                      sw * 0.05);
   // 脑袋反向补偿身体的扭动，视线才像一直盯着前方
   if (b == BONE_HEAD)    return vec3(-sin(ph * 2.0) * 0.055 - hit * 0.16,
@@ -244,13 +259,13 @@ mat3 rotZ(float a) {
 }
 
 /** 把顶点按骨骼 b 所在的整条链变换到当前姿态。 */
-vec3 boneApply(int b, vec3 p, float ph, float state, float flash) {
+vec3 boneApply(int b, vec3 p, float ph, float state, float flash, float pose) {
   int cur = b;
   // 链最深是 3 级（骨盆 → 大臂 → 小臂），循环上限给 4 保险
   for (int i = 0; i < 4; i++) {
     if (cur < 0) break;
     vec3 pv = uPivot[cur];
-    vec3 a = boneAngles(cur, ph, state, flash);
+    vec3 a = boneAngles(cur, ph, state, flash, pose);
     // 只有真的用到某个轴时才乘那个矩阵，省掉绝大多数骨头的两次矩阵乘法
     mat3 r = rotX(a.x);
     if (abs(a.y) > 0.0001) r = rotY(a.y) * r;

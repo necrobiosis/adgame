@@ -22,13 +22,19 @@ export class GoldBurst {
   private readonly e = new THREE.Euler();
   private readonly s = new THREE.Vector3(1, 1, 1);
 
-  constructor(readonly capacity = 260) {
-    const geo = new THREE.BoxGeometry(0.44, 0.26, 0.68);
+  /**
+   * 默认是金锭。传 `debris` 就换成暗色不反光的碎块——大型敌人炸开时抛出来的
+   * 残肢，弹道/弹跳/自旋完全复用同一套已经调好的物理。
+   */
+  constructor(readonly capacity = 260, opts?: { size?: [number, number, number]; color?: number; debris?: boolean }) {
+    const size = opts?.size ?? [0.44, 0.26, 0.68];
+    const geo = new THREE.BoxGeometry(size[0], size[1], size[2]);
+    const debris = opts?.debris ?? false;
     const mat = new THREE.MeshStandardMaterial({
-      color: 0xf5c22b,
-      roughness: 0.22,
-      metalness: 0.95,
-      emissive: new THREE.Color(0x6b4a00),
+      color: opts?.color ?? 0xf5c22b,
+      roughness: debris ? 0.9 : 0.22,
+      metalness: debris ? 0.05 : 0.95,
+      emissive: new THREE.Color(debris ? 0x000000 : 0x6b4a00),
     });
     this.mesh = new THREE.InstancedMesh(geo, mat, capacity);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

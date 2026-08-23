@@ -159,6 +159,8 @@ export class GameView {
   /** 天上的装饰性飞龙——不参与战斗，纯氛围点缀，所有关卡都能看到。 */
   private readonly dragon = new Dragon();
   private readonly gold = new GoldBurst();
+  /** 大型敌人炸开时抛出的碎块。复用金锭那套弹道，换成暗色不反光的块。 */
+  private readonly gibs = new GoldBurst(120, { size: [0.3, 0.26, 0.34], color: 0x5d6b3a, debris: true });
   /** 地面留痕：血迹 / 尸液 / 焦痕。打完一场仗地上要看得出来。 */
   private readonly decals = new Decals(160);
   /** 爆炸的动态点光。常驻场景，只改强度，避免灯数变化触发着色器重编译。 */
@@ -277,7 +279,7 @@ export class GameView {
    */
   private buildSoldierBatch(q: BuildQuality): void {
     const soldierGeo = soldierGeometry(q, this.soldierWeaponTier);
-    const soldierMat = createCrowdMaterial({ roughness: 0.74, metalness: 0.1 });
+    const soldierMat = createCrowdMaterial({ roughness: 0.74, metalness: 0.1, soldierPose: true });
     soldierMat.setPivots(geometryPivots(soldierGeo));
     this.soldierMatSet = soldierMat;
     this.soldiers = new CrowdBatch(soldierGeo, soldierMat.material, MAX_RENDERED_SOLDIERS, soldierMat.depthMaterial);
@@ -337,7 +339,7 @@ export class GameView {
       this.bars.mesh, this.tracers.mesh, this.sparks.mesh, this.smoke.mesh, this.gold.mesh,
       this.ring.mesh, this.lane.mesh, this.reticle.mesh, this.lightning.group, this.midRing.mesh,
       this.ambientSmoke.mesh, this.dragon.group,
-      this.decals.mesh, this.waves.mesh, this.flashes.group,
+      this.decals.mesh, this.waves.mesh, this.flashes.group, this.gibs.mesh,
     );
   }
 
@@ -514,6 +516,7 @@ export class GameView {
     this.sparks.update(dt);
     this.smoke.update(dt);
     this.gold.update(dt);
+    this.gibs.update(dt);
     this.lightning.update(dt);
     this.decals.update(dt);
     this.waves.update(dt);
@@ -885,6 +888,7 @@ export class GameView {
           }
           if (big) {
             this.gold.burst(ev.x!, 0.4, ev.z!, 4);
+            this.gibs.burst(ev.x!, 0.9, ev.z!, 7);
             this.camera.punch(0.08);
             this.waves.spawn(ev.x!, ev.z!, 0.3, 3.2, 0x8fbf4a, 0.34, 0.7);
           } else if (this.rng.next() < 0.06) {

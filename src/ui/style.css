@@ -276,6 +276,23 @@ html, body {
   mix-blend-mode: screen;
 }
 .screen-flash.go { animation: screenFlash 0.28s ease-out; }
+
+/* 士兵阵亡时四周压一圈红——比全屏闪更克制，死人多的时候不会闪瞎，
+   但边缘的红晕会持续提醒"你在掉人" */
+.damage-vignette {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center,
+    rgba(0,0,0,0) 42%, rgba(190,24,24,0.30) 78%, rgba(150,10,10,0.62) 100%);
+}
+.damage-vignette.go { animation: dmgPulse 0.5s ease-out; }
+@keyframes dmgPulse {
+  0%   { opacity: 0; }
+  18%  { opacity: 1; }
+  100% { opacity: 0; }
+}
 @keyframes screenFlash {
   0% { opacity: 0.85; }
   100% { opacity: 0; }

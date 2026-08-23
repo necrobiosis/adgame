@@ -25,6 +25,7 @@ import {
 const SKIN_PARS = /* glsl */ `
 ${SKELETON_GLSL}
 uniform float uTime;
+uniform float uPose;
 attribute vec4 aSkin;
 attribute float aPhase;
 attribute float aAnimSpeed;
@@ -35,8 +36,8 @@ attribute float aDeath;
 /** 只把顶点蒙皮到当前姿态 —— 深度通道要的全部内容。 */
 const SKIN_POSITION = /* glsl */ `
   float phase = aPhase + uTime * aAnimSpeed;
-  vec3 skinned = boneApply(int(aSkin.x + 0.5), position, phase, aState, 0.0) * aSkin.z
-               + boneApply(int(aSkin.y + 0.5), position, phase, aState, 0.0) * aSkin.w;
+  vec3 skinned = boneApply(int(aSkin.x + 0.5), position, phase, aState, 0.0, uPose) * aSkin.z
+               + boneApply(int(aSkin.y + 0.5), position, phase, aState, 0.0, uPose) * aSkin.w;
   skinned.y += abs(sin(phase)) * 0.028;
   if (aDeath > 0.0) {
     skinned = deathRot(aDeath, fract(aPhase * 0.6180339)) * skinned;
@@ -47,6 +48,7 @@ const SKIN_POSITION = /* glsl */ `
 const VERT_PARS = /* glsl */ `
 ${SKELETON_GLSL}
 uniform float uTime;
+uniform float uPose;       // 0 = 僵尸姿势, 1 = 士兵射击姿势
 attribute vec4 aSkin;      // x,y = 骨骼索引  z,w = 权重
 attribute vec2 aSurf;
 attribute float aPhase;
@@ -79,12 +81,12 @@ const VERT_BODY = /* glsl */ `
   int bA = int(aSkin.x + 0.5);
   int bB = int(aSkin.y + 0.5);
 
-  vec3 skinned = boneApply(bA, position, phase, aState, aFlash) * aSkin.z
-               + boneApply(bB, position, phase, aState, aFlash) * aSkin.w;
+  vec3 skinned = boneApply(bA, position, phase, aState, aFlash, uPose) * aSkin.z
+               + boneApply(bB, position, phase, aState, aFlash, uPose) * aSkin.w;
 
   vec3 offset = position + objectNormal * 0.02;
-  vec3 skinnedOff = boneApply(bA, offset, phase, aState, aFlash) * aSkin.z
-                  + boneApply(bB, offset, phase, aState, aFlash) * aSkin.w;
+  vec3 skinnedOff = boneApply(bA, offset, phase, aState, aFlash, uPose) * aSkin.z
+                  + boneApply(bB, offset, phase, aState, aFlash, uPose) * aSkin.w;
   vec3 skinNormal = normalize(skinnedOff - skinned);
 
   // 行走时整体上下起伏
@@ -122,6 +124,8 @@ export interface CrowdMaterialOptions extends SurfaceOptions {
   crackColor?: number;
   /** 裂纹发光的强度。 */
   crackStrength?: number;
+  /** true = 士兵：交火时端枪，而不是像僵尸那样抡胳膊。 */
+  soldierPose?: boolean;
 }
 
 export interface CrowdMaterialSet {
@@ -140,6 +144,7 @@ export function createCrowdMaterial(opts: CrowdMaterialOptions = {}): CrowdMater
   const shared = {
     uTime: { value: 0 },
     uPivot: { value: makePivotArray() },
+    uPose: { value: opts.soldierPose ? 1 : 0 },
   };
   const surf = surfaceUniforms({
     triScale: opts.triScale ?? 1.6,
@@ -166,7 +171,7 @@ export function createCrowdMaterial(opts: CrowdMaterialOptions = {}): CrowdMater
       }
     : null;
 
-  const key = `crowd-${seq++}${opts.crackGlow ? '-crack' : ''}`;
+  const key = `crowd-${seq++}${opts.crackGlow ? '-crack' : ''}${opts.soldierPose ? '-rifle' : ''}`;
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, shared, surf);
     if (crackUniforms) Object.assign(shader.uniforms, crackUniforms);
