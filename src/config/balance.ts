@@ -112,7 +112,7 @@ export const MELEE = {
 
 // ─────────────────────────── 敌人 ───────────────────────────
 
-export type EnemyKind = 'walker' | 'runner' | 'screamer' | 'brute' | 'titan' | 'boss';
+export type EnemyKind = 'walker' | 'runner' | 'screamer' | 'brute' | 'titan' | 'midboss' | 'boss';
 
 export interface EnemyStats {
   readonly kind: EnemyKind;
@@ -149,6 +149,11 @@ export const ENEMY_STATS: Record<EnemyKind, EnemyStats> = {
   // 一层——继续用那个饱和红橙会把新调色板重新糊成一片红，所以改成接近白色，
   // 让 palette 本身的颜色如实显示。
   titan:    { kind: 'titan',    label: '泰坦',   hp: 5200, speed: 2.2,  damage: 52, scale: 2.1,  gold: 70,  tint: 0xf0ece4, showHealthBar: true,  sweep: 5, scaleExp: 0.45 },
+  // 中 boss：介于精英怪和终极 Boss 之间——不halt 方阵、不进竞技场，就是一只
+  // 会顶着一个技能往前冲的强化精英，用普通 AI 走位（scripted:false），
+  // 靠 MidBossController 挂一层"到点炸一下"的技能。hp 字段基本用不上
+  // （每关在 levels.ts 的 midboss beat 里给绝对血量），留一个量级合理的默认值。
+  midboss:  { kind: 'midboss',  label: '腐蚀主宰', hp: 9000, speed: 2.3, damage: 58, scale: 2.7,  gold: 150, tint: 0xeef2e0, showHealthBar: true,  sweep: 6, scaleExp: 0.4 },
   boss:     { kind: 'boss',     label: '深渊领主', hp: 2700, speed: 2.6, damage: 68, scale: 4.4, gold: 400, tint: 0xf5f0e8, showHealthBar: true,  sweep: 8, scaleExp: 0 },
 };
 
@@ -175,6 +180,17 @@ export const BOSS = {
    * 这保证 Boss 战一定会分出胜负，而不是火力不够时耗成一场僵局。
    */
   enrage: { after: 20, rampPerSecond: 0.09, maxSpeed: 4.0, maxDamage: 4.0 },
+} as const;
+
+// ─────────────────────────── 中 Boss ───────────────────────────
+
+/**
+ * 中 boss 只有一个技能：贴近方阵后周期性地放一圈以自身为中心的冲击波。
+ * 没有阶段、没有狂暴——它不halt 方阵推进，就是行进路上一只格外硬、
+ * 会炸人的强化精英，机制刻意比终极 Boss 简单很多。
+ */
+export const MIDBOSS = {
+  shock: { telegraph: 1.0, radius: 5.0, damage: 45, cooldown: 8 },
 } as const;
 
 // ─────────────────────────── 障碍方块 ───────────────────────────

@@ -304,8 +304,10 @@ export class Game {
         case 'blockDestroyed': this.audio.blockBreak(); break;
         case 'gate': this.audio.gate(ev.gate ? ev.gate.type !== 'sub' && ev.gate.type !== 'div' : true); break;
         case 'bossSpawn':
-        case 'bossPhase': this.audio.bossRoar(); break;
-        case 'bossSlamHit': this.audio.explosion(); break;
+        case 'bossPhase':
+        case 'midbossSpawn': this.audio.bossRoar(); break;
+        case 'bossSlamHit':
+        case 'midbossAbilityHit': this.audio.explosion(); break;
         case 'bossLightningHit':
           this.audio.thunderCrack();
           this.floats.flash();

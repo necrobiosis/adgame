@@ -117,6 +117,9 @@ export type SimEventType =
   | 'bossCharge'
   | 'bossLightning'    // 雷击预警出现
   | 'bossLightningHit' // 落雷
+  | 'midbossSpawn'
+  | 'midbossAbility'    // 冲击波预警出现
+  | 'midbossAbilityHit' // 冲击波命中
   | 'win'
   | 'lose';
 

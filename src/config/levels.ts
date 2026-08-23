@@ -46,6 +46,7 @@ export type Beat =
   | { readonly t: 'choice'; readonly left: LaneChoice; readonly right: LaneChoice }
   | { readonly t: 'wave'; readonly wave: WaveSpec }
   | { readonly t: 'block'; readonly hp: number; readonly span: BlockSpan }
+  | { readonly t: 'midboss'; readonly hp: number; readonly scale: number; readonly name: string }
   | { readonly t: 'boss'; readonly hp: number; readonly scale: number; readonly name: string };
 
 export interface LevelDef {
@@ -108,6 +109,7 @@ const LEVEL_1: LevelDef = {
       right: { gate: { type: 'mul', value: 2 }, wave: elite([{ kind: 'brute', count: 3 }, { kind: 'walker', count: 40 }]), hint: '精英' },
     },
     { t: 'run', len: 73 },
+    { t: 'midboss', hp: 2200, scale: 1.0, name: '锈蚀行者' },
     {
       t: 'choice',
       left:  { gate: { type: 'add', value: 55 }, wave: swarm(230, 24), hint: '蜂群' },
@@ -144,6 +146,7 @@ const LEVEL_2: LevelDef = {
       right: { gate: { type: 'add', value: 70 }, wave: elite([{ kind: 'brute', count: 5 }, { kind: 'titan', count: 1 }]), hint: '精英' },
     },
     { t: 'run', len: 73 },
+    { t: 'midboss', hp: 5500, scale: 1.08, name: '疫化魁首' },
     {
       t: 'choice',
       // 安全通道 vs 火力飞跃
@@ -183,6 +186,7 @@ const LEVEL_3: LevelDef = {
     { t: 'run', len: 67 },
     { t: 'block', hp: 18000, span: 'right' },
     { t: 'run', len: 32 },
+    { t: 'midboss', hp: 9500, scale: 1.15, name: '尸潮领班' },
     {
       t: 'choice',
       left:  { gate: { type: 'firerate', value: 60 }, wave: swarm(380, 50), hint: '蜂群' },
@@ -219,6 +223,7 @@ const LEVEL_4: LevelDef = {
       right: { gate: { type: 'add', value: 120 }, wave: elite([{ kind: 'titan', count: 4 }, { kind: 'brute', count: 6 }]), hint: '精英' },
     },
     { t: 'run', len: 64 },
+    { t: 'midboss', hp: 15000, scale: 1.25, name: '赤红囚徒' },
     {
       t: 'choice',
       left:  { gate: { type: 'sub', value: 40 }, wave: swarm(60), hint: '安全' },
@@ -257,6 +262,7 @@ const LEVEL_5: LevelDef = {
     { t: 'run', len: 58 },
     { t: 'block', hp: 90000, span: 'left' },
     { t: 'run', len: 29 },
+    { t: 'midboss', hp: 24000, scale: 1.35, name: '深渊先驱' },
     {
       t: 'choice',
       left:  { gate: { type: 'cannon', value: 10 }, wave: swarm(600, 110), hint: '蜂群' },

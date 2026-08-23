@@ -44,6 +44,7 @@ export const ENEMY_JITTER: Record<string, JitterOptions> = {
   screamer: { hue: 0.030, saturation: 0.13, lightness: 0.10 },
   brute:    { hue: 0.025, saturation: 0.11, lightness: 0.09 },
   titan:    { hue: 0.020, saturation: 0.09, lightness: 0.08 },
+  midboss:  { hue: 0, saturation: 0, lightness: 0 },
   boss:     { hue: 0, saturation: 0, lightness: 0 },
 };
 

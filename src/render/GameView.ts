@@ -31,6 +31,7 @@ import {
   bossGeometry,
   bruteGeometry,
   geometryPivots,
+  midBossGeometry,
   runnerGeometry,
   screamerGeometry,
   soldierGeometry,
@@ -53,6 +54,7 @@ const CROWD_CAPACITY: Record<EnemyKind, number> = {
   screamer: 48,
   brute: 40,
   titan: 32,
+  midboss: 2,
   boss: 1,
 };
 
@@ -122,6 +124,8 @@ export class GameView {
   private readonly lane = new TelegraphLane();
   private readonly reticle = new LightningReticle();
   private readonly lightning = new Lightning();
+  /** 中 boss 冲击波预警——独立于主 Boss 的 ring，避免两者同屏时互相抢用。 */
+  private readonly midRing = new TelegraphRing();
   /** 上一帧 Boss 的 z——用来判断这一帧是不是正在高速冲锋，从而甩出拖尾电弧。 */
   private lastBossZ = 0;
   private hasLastBossZ = false;
@@ -169,6 +173,7 @@ export class GameView {
       screamer: screamerGeometry,
       brute: bruteGeometry,
       titan: titanGeometry,
+      midboss: midBossGeometry,
       boss: bossGeometry,
     };
 
@@ -194,7 +199,15 @@ export class GameView {
               wearColor: 0x2a1710, wear: 0.12, grungeColor: 0x110907, grunge: 0.2, ao: 0.75,
               crackGlow: true, crackColor: 0xe8481f, crackStrength: 3.4,
             })
-          : createCrowdMaterial();
+          : kind === 'midboss'
+            ? createCrowdMaterial({
+                emissive: 0x081405, roughness: 0.68, metalness: 0.1,
+                wearColor: 0x1a2412, wear: 0.13, grungeColor: 0x0c1208, grunge: 0.2, ao: 0.75,
+                // 腐蚀绿而不是火橙——和 titan/boss 的暖色裂纹拉开，一眼认得出
+                // 这是另一种怪，不是缩小版 boss
+                crackGlow: true, crackColor: 0x9ce85a, crackStrength: 3.6,
+              })
+            : createCrowdMaterial();
       set.setPivots(geometryPivots(geo));
       this.matSets.push(set);
       const batch = new CrowdBatch(geo, set.material, CROWD_CAPACITY[kind], set.depthMaterial);
@@ -262,7 +275,7 @@ export class GameView {
 
     this.scene.add(
       this.bars.mesh, this.tracers.mesh, this.sparks.mesh, this.smoke.mesh, this.gold.mesh,
-      this.ring.mesh, this.lane.mesh, this.reticle.mesh, this.lightning.group,
+      this.ring.mesh, this.lane.mesh, this.reticle.mesh, this.lightning.group, this.midRing.mesh,
     );
   }
 
@@ -385,6 +398,7 @@ export class GameView {
     this.syncSquad(world);
     this.syncShells(world);
     this.syncBoss(world, dt);
+    this.syncMidBoss(world);
 
     for (const g of this.gateWalls) g.wall.update(dt);
     for (const gate of world.gates) {
@@ -641,6 +655,16 @@ export class GameView {
     }
   }
 
+  /**
+   * 中 boss 走的是普通敌人 AI（scripted: false），本体已经在 syncEnemies()
+   * 里当成一只 midboss 敌人画过了——这里只管它那一圈冲击波预警。
+   */
+  private syncMidBoss(world: World): void {
+    const tg = world.midBoss.telegraph;
+    if (tg) this.midRing.show(tg.x, tg.z, tg.radius, tg.t, 0x8fe85a);
+    else this.midRing.hide();
+  }
+
   // ── 事件 → 特效 ─────────────────────────────────────────────
 
   private handleEvents(events: readonly SimEvent[], world: World): void {
@@ -677,7 +701,7 @@ export class GameView {
         }
         case 'kill': {
           const kind = ev.kind ?? 'walker';
-          const big = kind === 'brute' || kind === 'titan';
+          const big = kind === 'brute' || kind === 'titan' || kind === 'midboss';
           this.sparks.burst(ev.x!, ev.y!, ev.z!, {
             count: big ? 16 : 4, color: 0x8fbf4a,
             speed: [1.5, big ? 8 : 4], size: [0.3, big ? 1.0 : 0.5], life: [0.15, 0.4], grow: -0.4, gravity: 6, drag: 1.5,
@@ -776,6 +800,30 @@ export class GameView {
           });
           this.smoke.burst(ev.x!, 0.4, ev.z!, {
             count: 10, color: 0x8fb8c8, speed: [2, 6], size: [1.0, 2.0], life: [0.4, 0.8], grow: 2.6, drag: 2, lift: 1.4,
+          });
+          break;
+        }
+        case 'midbossSpawn': {
+          this.camera.punch(0.5);
+          this.smoke.burst(ev.x!, 1, ev.z!, {
+            count: 16, color: 0x5a7a3a, speed: [3, 9], size: [1.2, 2.4], life: [0.5, 1.0], grow: 3, drag: 1.6, lift: 1,
+          });
+          break;
+        }
+        case 'midbossAbility': {
+          // 预警刚出现：脚下先冒几粒毒绿的火花，提示玩家往哪躲
+          this.sparks.burst(ev.x!, 0.2, ev.z!, {
+            count: 6, color: 0x9ce85a, speed: [0.6, 2.0], size: [0.24, 0.45], life: [0.2, 0.4], grow: -0.4,
+          });
+          break;
+        }
+        case 'midbossAbilityHit': {
+          this.camera.punch(0.6);
+          this.sparks.burst(ev.x!, 0.4, ev.z!, {
+            count: 30, color: 0x9ce85a, speed: [6, 18], size: [0.6, 1.6], life: [0.25, 0.55], grow: 1.6, drag: 2.4,
+          });
+          this.smoke.burst(ev.x!, 0.4, ev.z!, {
+            count: 10, color: 0x4a6a2c, speed: [2, 6], size: [1.0, 2.0], life: [0.4, 0.8], grow: 2.4, drag: 2, lift: 1.2,
           });
           break;
         }

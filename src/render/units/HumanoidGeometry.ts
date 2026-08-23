@@ -624,6 +624,16 @@ export function titanGeometry(q: BuildQuality): THREE.BufferGeometry {
   }, q);
 }
 
+export function midBossGeometry(q: BuildQuality): THREE.BufferGeometry {
+  return buildHumanoid({
+    height: 2.65, build: 1.8, hunch: 0.32, reach: -0.72, horns: true, claws: true, spikes: true, decayed: true,
+    eyes: 'glow', mouth: 'fanged', seed: 61,
+    // 病态的暗绿腐蚀色，和 titan 的暖褐、boss 的近黑拉开——一眼能认出
+    // "这是介于精英和终极 Boss 之间的另一种强化怪"，不是缩小版 boss
+    palette: { skin: 0x263420, cloth: 0x171f13, dark: 0x0e130b, accent: 0xd8e0b8, bone: 0xe6ecc8 },
+  }, q);
+}
+
 export function bossGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
     height: 2.9, build: 1.95, hunch: 0.22, reach: -0.6, horns: true, claws: true, spikes: true, decayed: true,

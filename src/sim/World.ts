@@ -15,6 +15,7 @@ import { BossController } from './Boss';
 import { Combat } from './Combat';
 import { EnemyPool } from './Enemies';
 import { applyGate } from './Gates';
+import { MidBossController } from './MidBoss';
 import { Squad } from './Squad';
 import { LANE_SIGN, sideAtX } from './lanes';
 import type { BlockObstacle, GateGroup, Phase, SimEvent } from './types';
@@ -50,6 +51,7 @@ export class World {
   readonly enemies: EnemyPool;
   readonly combat = new Combat();
   readonly boss: BossController;
+  readonly midBoss: MidBossController;
 
   readonly gates: GateGroup[] = [];
   readonly blocks: BlockObstacle[] = [];
@@ -69,6 +71,7 @@ export class World {
   private readonly rng: Rng;
   private readonly events: SimEvent[] = [];
   private pendingWaves: { wave: WaveSpec; z: number }[] = [];
+  private pendingMidBoss: { hp: number; scale: number; name: string; z: number } | null = null;
   private bossTriggered = false;
   private bossArenaTargetZ = 0;
   private nextId = 1;
@@ -78,6 +81,7 @@ export class World {
     this.rng = new Rng(opts.seed ?? 0x51ed5eed);
     this.enemies = new EnemyPool(this.rng);
     this.boss = new BossController(this.rng);
+    this.midBoss = new MidBossController();
 
     const up = opts.upgrades;
     this.squad = new Squad({
@@ -131,6 +135,11 @@ export class World {
           z += 12;
           break;
         }
+        case 'midboss':
+          // 和 'wave' 一样只登记一个触发点，不占用赛道长度——中 boss
+          // 不halt 方阵，没有竞技场
+          this.pendingMidBoss = { hp: beat.hp, scale: beat.scale, name: beat.name, z };
+          break;
         case 'boss':
           this.arenaZ = z + 24;
           z = this.arenaZ;
@@ -213,6 +222,13 @@ export class World {
     // ── 触发器 ──────────────────────────────────────────────
     this.checkGates(prevZ, out);
     this.firePendingWaves();
+    if (this.pendingMidBoss && this.squad.z >= this.pendingMidBoss.z) {
+      const spec = this.pendingMidBoss;
+      this.pendingMidBoss = null;
+      this.enemies.hpScale = this.currentHpScale();
+      const mx = clamp(this.squad.x + this.rng.range(-4, 4), -ROAD_HALF + 1.5, ROAD_HALF - 1.5);
+      this.midBoss.spawn(this.enemies, mx, this.squad.z + 60, spec.hp, spec.scale, spec.name, out);
+    }
     if (!this.bossTriggered && this.squad.z >= this.arenaZ - BOSS_TRIGGER_AHEAD) {
       this.bossTriggered = true;
       this.enemies.hpScale = this.level.enemyHpScale;
@@ -224,6 +240,7 @@ export class World {
 
     // ── 战斗 ────────────────────────────────────────────────
     this.boss.update(dt, this.squad, this.enemies, out);
+    this.midBoss.update(dt, this.squad, out);
     const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, out);
     this.enemies.update(dt, this.squad, this.barrier, out);
 
