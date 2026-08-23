@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BOSS, MIDBOSS, ROAD_HALF } from '../config/balance';
 import { LEVELS } from '../config/levels';
 import { GameView } from '../render/GameView';
 import { Renderer } from '../render/Renderer';
@@ -295,27 +296,55 @@ export class Game {
     }
   }
 
+  /** 连续捡金币时音高一级级往上爬；隔太久就断掉重来。 */
+  private coinStreak = 0;
+  private coinStreakAt = 0;
+
   private playAudio(events: readonly SimEvent[], world: World): void {
+    // 事件坐标 → 立体声位置。以方阵为中心，越靠边偏得越多。
+    const pan = (x: number | undefined): number =>
+      x === undefined ? 0 : Math.max(-1, Math.min(1, (x - world.squad.x) / ROAD_HALF)) * 0.75;
+
     for (const ev of events) {
       switch (ev.type) {
-        case 'shot': this.audio.shot(world.squad.weaponLevel); break;
-        case 'cannonFire': this.audio.cannon(); break;
-        case 'shellImpact': this.audio.explosion(); break;
-        case 'blockDestroyed': this.audio.blockBreak(); break;
-        case 'goldPickup': this.audio.coinPickup(); break;
-        case 'gate': this.audio.gate(ev.gate ? ev.gate.type !== 'sub' && ev.gate.type !== 'div' : true); break;
+        case 'shot': this.audio.shot(world.squad.weaponLevel, pan(ev.x)); break;
+        case 'cannonFire': this.audio.cannon(pan(ev.x)); break;
+        case 'shellImpact': this.audio.explosion(pan(ev.x)); break;
+        case 'blockHit': this.audio.blockHit(pan(ev.x)); break;
+        case 'blockDestroyed': this.audio.blockBreak(pan(ev.x)); break;
+        case 'kill': this.audio.zombieDie(pan(ev.x)); break;
+        case 'soldierDown': this.audio.soldierDown(pan(ev.x)); break;
+        case 'goldPickup': {
+          const t = world.stats.elapsed;
+          this.coinStreak = t - this.coinStreakAt < 2.2 ? this.coinStreak + 1 : 0;
+          this.coinStreakAt = t;
+          this.audio.coinPickup(this.coinStreak, pan(ev.x));
+          break;
+        }
+        case 'gate': this.audio.gate(ev.gate ? ev.gate.type !== 'sub' && ev.gate.type !== 'div' : true, pan(ev.x)); break;
         case 'bossSpawn':
         case 'bossPhase':
-        case 'midbossSpawn': this.audio.bossRoar(); break;
+        case 'midbossSpawn': this.audio.bossRoar(pan(ev.x)); break;
+        // 技能预警的蓄力声。之前这几个事件完全是哑的 —— 玩家只能靠眼睛
+        // 看地上的圈，听觉上没有任何"要来了"的提示。
+        case 'bossSlam': this.audio.telegraph(BOSS.slam.telegraph, 'slam', pan(ev.x)); break;
+        case 'bossCharge': this.audio.telegraph(BOSS.charge.telegraph, 'charge', pan(ev.x)); break;
+        case 'bossLightning': this.audio.telegraph(BOSS.lightning.telegraph, 'lightning', pan(ev.x)); break;
+        case 'midbossAbility': this.audio.telegraph(MIDBOSS.shock.telegraph, 'shock', pan(ev.x)); break;
         case 'bossSlamHit':
-        case 'midbossAbilityHit': this.audio.explosion(); break;
+        case 'midbossAbilityHit': this.audio.explosion(pan(ev.x)); break;
         case 'bossLightningHit':
-          this.audio.thunderCrack();
+          this.audio.thunderCrack(pan(ev.x));
           this.floats.flash();
           break;
         default: break;
       }
     }
+
+    // 环境音床强度：贴身的敌人数 + Boss 在场时直接顶满
+    const threat = Math.min(1, world.enemies.contactCount / 28);
+    const bossOn = world.boss.enemy?.alive || world.midBoss.enemy?.alive ? 1 : 0;
+    this.audio.setAmbience(Math.max(threat, bossOn * 0.85, 0.25), STEP);
   }
 
   /** 把 GameView 收集到的世界坐标飘字投影到屏幕上。 */
