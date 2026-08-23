@@ -13,7 +13,8 @@ import { LANE_SIGN } from '../sim/lanes';
 import { ChaseCamera, Renderer } from './Renderer';
 import { createCity } from './env/City';
 import { createBridge } from './env/Bridge';
-import { CRIMSON, DAY, createLights, createSky, createSkyEnvironment, type SceneLights, type SkyTheme } from './env/Sky';
+import { Dragon } from './env/Dragon';
+import { APOCALYPSE, CRIMSON, createLights, createSky, createSkyEnvironment, type SceneLights, type SkyTheme } from './env/Sky';
 import { GoldBurst } from './fx/GoldBurst';
 import { Lightning } from './fx/Lightning';
 import { Particles } from './fx/Particles';
@@ -119,6 +120,11 @@ export class GameView {
   private readonly tracers = new Tracers();
   private readonly sparks = new Particles(900, true);
   private readonly smoke = new Particles(420, false);
+  /** 城市废墟里常驻的烟柱/余烬——和战斗特效用的 smoke 分开，不互相挤占配额。 */
+  private readonly ambientSmoke = new Particles(220, false);
+  private smokeColumns: { x: number; y: number; z: number; ember: boolean; next: number }[] = [];
+  /** 天上的装饰性飞龙——不参与战斗，纯氛围点缀，所有关卡都能看到。 */
+  private readonly dragon = new Dragon();
   private readonly gold = new GoldBurst();
   private readonly ring = new TelegraphRing();
   private readonly lane = new TelegraphLane();
@@ -276,6 +282,7 @@ export class GameView {
     this.scene.add(
       this.bars.mesh, this.tracers.mesh, this.sparks.mesh, this.smoke.mesh, this.gold.mesh,
       this.ring.mesh, this.lane.mesh, this.reticle.mesh, this.lightning.group, this.midRing.mesh,
+      this.ambientSmoke.mesh, this.dragon.group,
     );
   }
 
@@ -306,7 +313,7 @@ export class GameView {
   buildLevel(world: World): void {
     this.disposeLevel();
     const root = new THREE.Group();
-    const theme: SkyTheme = world.level.id >= 4 ? CRIMSON : DAY;
+    const theme: SkyTheme = world.level.id >= 4 ? CRIMSON : APOCALYPSE;
     const q = this.r.quality;
 
     root.add(createSky(theme));
@@ -336,6 +343,20 @@ export class GameView {
     this.levelRoot = root;
     this.scene.add(root);
     this.camera.snap(world.squad.x, world.squad.z);
+
+    // 末日城市里常驻几根烟柱——废墟还在闷烧，不只是配色暗了而已
+    this.smokeColumns = [];
+    const colRng = new Rng(0x9e3 + world.level.id * 131);
+    for (let i = 0; i < 6; i++) {
+      const side = colRng.next() < 0.5 ? -1 : 1;
+      this.smokeColumns.push({
+        x: side * colRng.range(20, 55),
+        y: colRng.range(-8, 16),
+        z: colRng.range(20, world.totalLength - 20),
+        ember: i % 3 === 0,
+        next: colRng.range(0, 0.3),
+      });
+    }
   }
 
   private disposeLevel(): void {
@@ -423,11 +444,33 @@ export class GameView {
     this.smoke.update(dt);
     this.gold.update(dt);
     this.lightning.update(dt);
+    this.updateAmbientSmoke(dt);
+    this.dragon.update(dt, world.squad.x * 0.3, world.squad.z + 90);
 
     if (!this.applyInspect(world)) {
       this.camera.update(this.r.camera, dt, world.squad.x, world.squad.z, world.squad.depth, world.boss.active);
     }
     this.followSun(world);
+  }
+
+  /** 城市废墟里常驻的烟柱：每根柱子按各自的节奏冒一缕烟，偶尔夹一点余烬。 */
+  private updateAmbientSmoke(dt: number): void {
+    for (const c of this.smokeColumns) {
+      c.next -= dt;
+      if (c.next > 0) continue;
+      c.next = 0.18 + this.rng.next() * 0.14;
+      this.ambientSmoke.burst(c.x, c.y, c.z, {
+        count: 1, color: 0x4a463e,
+        speed: [0.3, 0.8], size: [1.6, 2.8], life: [2.2, 3.4], grow: 1.1, drag: 0.6, lift: 1.2,
+      });
+      if (c.ember) {
+        this.sparks.burst(c.x, c.y - 1, c.z, {
+          count: 1, color: 0xff7a2e,
+          speed: [0.2, 0.6], size: [0.3, 0.5], life: [0.5, 0.9], grow: -0.3, lift: 0.6,
+        });
+      }
+    }
+    this.ambientSmoke.update(dt);
   }
 
   /**

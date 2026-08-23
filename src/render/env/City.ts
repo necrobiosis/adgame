@@ -40,18 +40,19 @@ export function createCity(length: number, rng: Rng, detail = 1): THREE.Group {
     else far.push(m);
   }
 
-  const concrete = industrial(PRESET.concrete(0x9aa0a8));
-  const steel = industrial(PRESET.bareSteel(0x7d848d));
+  // 末日基调：灰蓝混凝土换成烟熏灰/锈蚀色，整座城市先从配色上垮掉
+  const concrete = industrial(PRESET.concrete(0x4a463e));
+  const steel = industrial(PRESET.bareSteel(0x5c4a3a));
 
   g.add(instancedFrom(nearBlock(), concrete, near, { receiveShadow: false }));
   g.add(instancedFrom(midBlock(), concrete, mid));
-  g.add(instancedFrom(ensureSurf(chamferBox(1, 1, 1, 0.05)), industrial(PRESET.concrete(0xa8b0ba)), far));
+  g.add(instancedFrom(ensureSurf(chamferBox(1, 1, 1, 0.05)), industrial(PRESET.concrete(0x5c5850)), far));
   void steel;
 
   // 雾的底色，避免俯视时看到虚空
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(1600, 1600),
-    new THREE.MeshBasicMaterial({ color: 0x8fa0ac }),
+    new THREE.MeshBasicMaterial({ color: 0x3a3630 }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, -96, z0 + L / 2);

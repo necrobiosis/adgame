@@ -33,6 +33,22 @@ export const DAY: SkyTheme = {
 };
 
 /**
+ * 末日基调：灰烬天空、烟霾滤过的暗橙太阳、压暗的地平线。
+ * 前三关的默认天色，比 DAY 更"废土"，后两关的 CRIMSON 顺势成为
+ * 更浓烈的末日——整局基调递进而不是割裂。
+ */
+export const APOCALYPSE: SkyTheme = {
+  top: 0x2a2620,
+  horizon: 0x8a6a4a,
+  ground: 0x3a332c,
+  fog: 0x6a5c48,
+  sun: 0xffb066,
+  ambient: 0x5a5040,
+  sunDir: [-0.4, 0.5, 0.38],
+  sunIntensity: 5,
+};
+
+/**
  * 后两关的血色黄昏。
  *
  * 天空自己就是环境光源，所以这套配色只要一饱和，整个场景（桥、路面、士兵）
