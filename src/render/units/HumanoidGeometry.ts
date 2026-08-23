@@ -55,6 +55,16 @@ export interface HumanoidSpec {
   spikes?: boolean;
   /** 破损的衣料、外露的肋骨、不对称的伤口。 */
   decayed?: boolean;
+  /**
+   * 眼睛变体：'soldier' 正常巩膜+瞳孔，'zombie' 凹陷发暗的眼窝，
+   * 'glow' 尖锐凸起、会被 CrowdMaterial 的裂纹发光按顶点凸度自动点亮
+   * （精英/Boss 专用，复用现成机制，不需要新的着色器分支）。
+   */
+  eyes?: 'soldier' | 'zombie' | 'glow';
+  /** 嘴部变体：'closed' 抿嘴，'open' 张开的嘴缝露牙，'fanged' 獠牙外露。 */
+  mouth?: 'closed' | 'open' | 'fanged';
+  /** 收窄下颌/颧骨，脸更凹陷憔悴——小型僵尸用来和"缩小版士兵"拉开区别。 */
+  gaunt?: boolean;
   /** 随机种子，用来做个体差异。 */
   seed?: number;
 }
@@ -151,11 +161,14 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
 
   // ── 头 ──────────────────────────────────────────────────────
   const headTop = skel[BONE.HEAD]!.tail;
+  // 憔悴：下颌+颧骨一起收窄，脸从"圆润"变"凹陷"——不改动脖子/颅顶，
+  // 侧影读起来是同一个人瘦下去了，不是换了一颗头。
+  const gauntK = spec.gaunt ? 0.82 : 1;
   const headCtrl = densify([
     { t: 0.02, w: H * 0.030, h: H * 0.030, round: 0.95 },  // 脖子
     { t: 0.22, w: H * 0.033, h: H * 0.033, round: 0.95 },
-    { t: 0.42, w: H * 0.045, h: H * 0.048, round: 0.9 },   // 下颌
-    { t: 0.66, w: H * 0.048, h: H * 0.052, round: 0.92 },  // 颧骨
+    { t: 0.42, w: H * 0.045 * gauntK, h: H * 0.048 * gauntK, round: 0.9 },   // 下颌
+    { t: 0.66, w: H * 0.048 * gauntK, h: H * 0.052 * gauntK, round: 0.92 }, // 颧骨
     { t: 0.88, w: H * 0.045, h: H * 0.048, round: 1 },     // 颅顶
     { t: 1.0, w: H * 0.026, h: H * 0.03, round: 1 },
   ], q);
@@ -165,15 +178,82 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
   const headLen = headTop.y - neck.y;
   const chinY = neck.y + headLen * 0.30;
   const mouthY = neck.y + headLen * 0.40;
-  const eyeY = neck.y + headLen * 0.56;
+  const noseY = neck.y + headLen * 0.49;
+  const eyeY = neck.y + headLen * 0.58;
   const browY = neck.y + headLen * 0.64;
   const faceZ = neck.z + headLen * 0.22;
-
-  // 口鼻：往前突出一小块，侧影才不是一颗光球
-  add(place(accBox(H * 0.042, H * 0.032, H * 0.03, H * 0.012), {
-    x: 0, y: mouthY, z: faceZ,
-  }), p.skin, [BONE.HEAD]);
   void chinY;
+
+  // 鼻子：往前突出一小块，侧影才不是一颗光球
+  add(place(accBox(H * 0.03, H * 0.024, H * 0.024, H * 0.01), {
+    x: 0, y: noseY, z: faceZ,
+  }), p.skin, [BONE.HEAD]);
+
+  // ── 眼睛 ────────────────────────────────────────────────────
+  const eyeX = H * 0.021;
+  const eyesVariant = spec.eyes ?? 'zombie';
+  if (eyesVariant === 'soldier') {
+    for (const sx of [-1, 1] as const) {
+      // 巩膜：嵌进眼窝的白色小方块
+      add(place(accBox(H * 0.014, H * 0.009, H * 0.006, H * 0.003), {
+        x: sx * eyeX, y: eyeY, z: faceZ + headLen * 0.015,
+      }), 0xece4d4, [BONE.HEAD]);
+      // 瞳孔：更暗更小，贴在巩膜前面一点
+      add(place(accBox(H * 0.006, H * 0.006, H * 0.004, H * 0.002), {
+        x: sx * eyeX, y: eyeY, z: faceZ + headLen * 0.03,
+      }), 0x1c1712, [BONE.HEAD]);
+    }
+  } else {
+    // 'zombie' / 'glow'：眼睛做成一个尖锐的小凸起，而不是挖一个凹坑——
+    // 凹坑在这套"放样+平滑法线"的管线里很难看清楚，凸起涂暗色照样读作
+    // "眼窝里的窟窿"，涂骨色还会被 CrowdMaterial 按顶点凸度点亮的裂纹
+    // 发光自动选中（复用现成机制，不用为"发光眼"另开一条着色器分支）。
+    const eyeColor = eyesVariant === 'glow' ? p.bone : 0x0c0a08;
+    for (const sx of [-1, 1] as const) {
+      add(place(lathe([
+        [H * 0.009, 0], [H * 0.006, H * 0.012], [0.0004, H * 0.024],
+      ], Math.max(5, Math.round(q.radialSegments * 0.5))), {
+        x: sx * eyeX, y: eyeY, z: faceZ + headLen * 0.03, rx: -1.15,
+      }), eyeColor, [BONE.HEAD]);
+    }
+  }
+
+  // ── 眉骨 ────────────────────────────────────────────────────
+  if (minor) {
+    add(place(accBox(H * 0.05, H * 0.01, H * 0.014, H * 0.004), {
+      x: 0, y: browY, z: faceZ + headLen * 0.02, rx: -0.15,
+    }), p.dark, [BONE.HEAD]);
+  }
+
+  // ── 嘴 ──────────────────────────────────────────────────────
+  const mouthVariant = spec.mouth ?? 'closed';
+  if (mouthVariant === 'fanged') {
+    // 嘴裂：一条扁的暗色缝
+    add(place(accBox(H * 0.046, H * 0.014, H * 0.024, H * 0.006), {
+      x: 0, y: mouthY, z: faceZ,
+    }), 0x140b0a, [BONE.HEAD]);
+    // 獠牙：上颚两颗，尖端朝下
+    for (const sx of [-1, 1] as const) {
+      add(place(lathe([[H * 0.008, 0], [H * 0.005, H * 0.012], [0.0004, H * 0.026]], 5), {
+        x: sx * H * 0.016, y: mouthY + H * 0.008, z: faceZ + headLen * 0.008, rx: Math.PI,
+      }), p.bone, [BONE.HEAD]);
+    }
+  } else if (mouthVariant === 'open') {
+    // 张开的嘴缝，露出参差的牙——僵尸的标志性表情
+    add(place(accBox(H * 0.05, H * 0.02, H * 0.026, H * 0.008), {
+      x: 0, y: mouthY - H * 0.006, z: faceZ,
+    }), 0x1a100d, [BONE.HEAD]);
+    for (let i = -1; i <= 1; i++) {
+      add(place(chamferBox(H * 0.009, H * 0.008, H * 0.006, H * 0.002), {
+        x: i * H * 0.014, y: mouthY + H * 0.004, z: faceZ + headLen * 0.006,
+      }), p.bone, [BONE.HEAD]);
+    }
+  } else {
+    // 抿嘴：一小块凸起，士兵用这个显得正常
+    add(place(accBox(H * 0.042, H * 0.014, H * 0.024, H * 0.01), {
+      x: 0, y: mouthY, z: faceZ,
+    }), p.skin, [BONE.HEAD]);
+  }
 
   // ── 四肢 ────────────────────────────────────────────────────
   const armCtrl = densify([
@@ -290,9 +370,10 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
         x: 0, y: browY + headLen * 0.16, z: faceZ + headLen * 0.06,
       }), p.dark, [BONE.HEAD]);
     }
-    // 护目镜：一条横过脸的暗带，脸立刻有了焦点
+    // 护目镜：推到额头上的一条暗带，脸立刻有了焦点，又不会挡住眼睛下面
+    // 新加的五官——士兵也要看得出五官，不能被一条黑杠糊住脸
     add(place(accBox(H * 0.084, H * 0.02, H * 0.018, H * 0.007), {
-      x: 0, y: eyeY, z: faceZ - headLen * 0.02,
+      x: 0, y: browY, z: faceZ - headLen * 0.02,
     }), 0x14171d, [BONE.HEAD]);
     // 下巴带
     add(place(pipe([
@@ -436,35 +517,40 @@ export function geometrySkeleton(geo: THREE.BufferGeometry): Skeleton {
 
 export function zombieGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 1.76, build: 0.95, hunch: 0.34, reach: -1.15, decayed: true, seed: 11,
+    height: 1.76, build: 0.95, hunch: 0.34, reach: -1.15, decayed: true, gaunt: true,
+    eyes: 'zombie', mouth: 'open', seed: 11,
     palette: { skin: 0xb8c3a6, cloth: 0x7d8070, dark: 0x55584d, accent: 0x8a8272, bone: 0xd8d2bd },
   }, q);
 }
 
 export function runnerGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 1.72, build: 0.82, hunch: 0.55, reach: -1.45, decayed: true, claws: true, seed: 23,
+    height: 1.72, build: 0.82, hunch: 0.55, reach: -1.45, decayed: true, claws: true, gaunt: true,
+    eyes: 'zombie', mouth: 'open', seed: 23,
     palette: { skin: 0xc9bd96, cloth: 0x8a7a55, dark: 0x5b4d36, accent: 0x9d8a5f, bone: 0xe0d8bf },
   }, q);
 }
 
 export function screamerGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 2.0, build: 0.86, hunch: 0.2, reach: -0.5, horns: true, claws: true, decayed: true, seed: 37,
+    height: 2.0, build: 0.86, hunch: 0.2, reach: -0.5, horns: true, claws: true, decayed: true,
+    eyes: 'zombie', mouth: 'fanged', seed: 37,
     palette: { skin: 0xd08ea0, cloth: 0x7a3f52, dark: 0x4a2130, accent: 0x9c4f66, bone: 0xf0e2d6 },
   }, q);
 }
 
 export function bruteGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 2.2, build: 1.45, hunch: 0.4, reach: -0.85, claws: true, spikes: true, decayed: true, seed: 53,
+    height: 2.2, build: 1.45, hunch: 0.4, reach: -0.85, claws: true, spikes: true, decayed: true,
+    eyes: 'zombie', mouth: 'fanged', seed: 53,
     palette: { skin: 0xb08068, cloth: 0x6f4636, dark: 0x40281f, accent: 0x8a5540, bone: 0xe8ddc8 },
   }, q);
 }
 
 export function titanGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 2.5, build: 1.7, hunch: 0.3, reach: -0.7, horns: true, claws: true, spikes: true, decayed: true, seed: 71,
+    height: 2.5, build: 1.7, hunch: 0.3, reach: -0.7, horns: true, claws: true, spikes: true, decayed: true,
+    eyes: 'glow', mouth: 'fanged', seed: 71,
     // 炭化甲壳压暗，把"亮"完全让给骨白的角爪——不再是红橙一个色系糊在一起
     palette: { skin: 0x4a2e28, cloth: 0x241512, dark: 0x150a08, accent: 0xe8dcc4, bone: 0xf2e6d2 },
   }, q);
@@ -472,7 +558,8 @@ export function titanGeometry(q: BuildQuality): THREE.BufferGeometry {
 
 export function bossGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 2.9, build: 1.95, hunch: 0.22, reach: -0.6, horns: true, claws: true, spikes: true, decayed: true, seed: 97,
+    height: 2.9, build: 1.95, hunch: 0.22, reach: -0.6, horns: true, claws: true, spikes: true, decayed: true,
+    eyes: 'glow', mouth: 'fanged', seed: 97,
     // 近黑的炭化甲壳 + 骨白角爪的强对比；"亮色"不再来自皮肤本身，而是
     // CrowdMaterial 里叠加在磨损棱线上的熔纹自发光（见 GameView 的 crackGlow）
     palette: { skin: 0x231210, cloth: 0x160b09, dark: 0x0d0503, accent: 0xf5e8d0, bone: 0xffeede },
@@ -481,7 +568,8 @@ export function bossGeometry(q: BuildQuality): THREE.BufferGeometry {
 
 export function soldierGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 1.8, build: 1.02, hunch: 0.06, reach: -0.28, helmet: true, backpack: true, gun: true, seed: 5,
+    height: 1.8, build: 1.02, hunch: 0.06, reach: -0.28, helmet: true, backpack: true, gun: true,
+    eyes: 'soldier', mouth: 'closed', seed: 5,
     palette: { skin: 0xd9a684, cloth: 0x2f4d8f, dark: 0x1d2f5c, accent: 0x24407a, bone: 0xf0e6d8 },
   }, q);
 }

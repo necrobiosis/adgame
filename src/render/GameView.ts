@@ -325,18 +325,19 @@ export class GameView {
     const ins = this.inspect;
     if (!ins) return false;
     let cx = world.squad.x;
-    let cy = 1.0;
+    // 头部高度而不是躯干中心——现在角色有五官了，检查资产多半是想看脸
+    let cy = 1.6;
     let cz = world.squad.z;
     if (ins.target === 'boss' && world.boss.enemy) {
       cx = world.boss.enemy.x;
-      cy = world.boss.enemy.scale * 1.2;
+      cy = world.boss.enemy.scale * 1.35;
       cz = world.boss.enemy.z;
     } else if (ins.target === 'cannon') {
       const c = world.squad.units.find((u) => u.alive && u.isCannon);
       if (c) { cx = c.x; cy = 0.7; cz = c.z; }
     } else if (ins.target === 'enemy') {
       const e = world.enemies.list.find((x) => x.alive && !x.scripted);
-      if (e) { cx = e.x; cy = e.scale * 0.9; cz = e.z; }
+      if (e) { cx = e.x; cy = e.scale * 1.5; cz = e.z; }
     }
     const cam = this.r.camera;
     cam.position.set(cx + Math.sin(ins.yaw) * ins.dist, cy + ins.height, cz + Math.cos(ins.yaw) * ins.dist);
