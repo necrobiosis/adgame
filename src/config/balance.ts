@@ -166,6 +166,8 @@ export const BOSS = {
   summon: { count: 26, cooldown: 9.5 },
   /** 冲锋。 */
   charge: { telegraph: 1.0, speed: 26, laneHalfWidth: 3.4, damage: 40, cooldown: 11 },
+  /** 天降雷击：随机点位、收缩的准星预警、小范围高伤害。 */
+  lightning: { telegraph: 1.3, radius: 5.2, damage: 60, cooldown: 10.5 },
   /** Boss 停在竞技场里离方阵多远。 */
   standoff: 22,
   /**

@@ -39,6 +39,8 @@ export class Game {
       enemiesTotal: w?.enemies.list.length,
       nearest: w ? Math.round(w.enemies.list.reduce((m, e) => (e.alive ? Math.min(m, e.z - w.squad.z) : m), 999)) : null,
       contact: w?.enemies.contactCount,
+      bossAlive: w?.boss.enemy?.alive ?? false,
+      bossTelegraph: w?.boss.telegraph?.kind ?? null,
       drawn: this.view.instanceCounts(),
       fog: !!this.renderer.scene.fog,
       quality: this.renderer.quality.level,
@@ -304,6 +306,10 @@ export class Game {
         case 'bossSpawn':
         case 'bossPhase': this.audio.bossRoar(); break;
         case 'bossSlamHit': this.audio.explosion(); break;
+        case 'bossLightningHit':
+          this.audio.thunderCrack();
+          this.floats.flash();
+          break;
         default: break;
       }
     }

@@ -82,12 +82,82 @@ export class TelegraphLane {
     this.mesh.frustumCulled = false;
   }
 
-  show(x: number, z0: number, z1: number, halfWidth: number, progress: number): void {
+  show(x: number, z0: number, z1: number, halfWidth: number, progress: number, color = 0xff5a2f): void {
     this.mesh.visible = true;
     const len = Math.abs(z1 - z0);
     this.mesh.position.set(x, 0.05, (z0 + z1) / 2);
     this.mesh.scale.set(halfWidth * 2, len, 1);
     this.mat.opacity = 0.25 + 0.4 * progress;
+    this.mat.color.setHex(color);
+  }
+
+  hide(): void {
+    this.mesh.visible = false;
+  }
+}
+
+/**
+ * 天降雷击的预警：不是圆盘，是三道向内收缩、绕落点旋转的弧线 +
+ * 收缩到最后炸开的一个亮点——第一眼就能看出这不是践踏 AoE 的红圈。
+ */
+export class LightningReticle {
+  readonly mesh: THREE.Mesh;
+  private readonly mat: THREE.ShaderMaterial;
+
+  constructor() {
+    this.mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uProgress: { value: 0 },
+        uColor: { value: new THREE.Color(0x8fe0ff) },
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uProgress;
+        uniform vec3 uColor;
+        varying vec2 vUv;
+        void main() {
+          vec2 p = vUv - 0.5;
+          float d = length(p) * 2.0;
+          if (d > 1.0) discard;
+          float ang = atan(p.y, p.x);
+          // 半径随进度从外圈收缩到中心
+          float radius = mix(1.0, 0.06, uProgress);
+          float band = smoothstep(0.09, 0.0, abs(d - radius));
+          // 三道弧线绕落点旋转收拢，而不是一整圈实线
+          float third = 2.0943951; // 2π/3
+          float aa = mod(ang + uProgress * 7.0, third);
+          float arc = step(aa, third * 0.42);
+          float a = band * arc;
+          // 收缩到中心时冒出一个越来越亮的核心点，预示即将落雷
+          float core = smoothstep(0.14, 0.0, d) * uProgress;
+          a = max(a, core * 0.85);
+          if (a < 0.02) discard;
+          gl_FragColor = vec4(uColor, a);
+        }
+      `,
+    });
+    this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat);
+    this.mesh.rotation.x = -Math.PI / 2;
+    this.mesh.renderOrder = 3;
+    this.mesh.visible = false;
+    this.mesh.frustumCulled = false;
+  }
+
+  show(x: number, z: number, radius: number, progress: number, color = 0x8fe0ff): void {
+    this.mesh.visible = true;
+    this.mesh.position.set(x, 0.06, z);
+    this.mesh.scale.set(radius * 2, radius * 2, 1);
+    this.mat.uniforms.uProgress!.value = progress;
+    (this.mat.uniforms.uColor!.value as THREE.Color).setHex(color);
   }
 
   hide(): void {

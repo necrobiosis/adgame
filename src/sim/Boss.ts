@@ -4,7 +4,16 @@ import type { EnemyPool } from './Enemies';
 import type { Squad } from './Squad';
 import type { Enemy, SimEvent } from './types';
 
-type BossState = 'approach' | 'idle' | 'slamTelegraph' | 'slamRecover' | 'chargeTelegraph' | 'charging' | 'chargeReturn' | 'summon';
+type BossState =
+  | 'approach'
+  | 'idle'
+  | 'slamTelegraph'
+  | 'slamRecover'
+  | 'chargeTelegraph'
+  | 'charging'
+  | 'chargeReturn'
+  | 'summon'
+  | 'lightningTelegraph';
 
 export interface Telegraph {
   x: number;
@@ -13,7 +22,7 @@ export interface Telegraph {
   /** 已经过的时间 / 总时长，1 = 落地。 */
   t: number;
   dur: number;
-  kind: 'slam' | 'charge';
+  kind: 'slam' | 'charge' | 'lightning';
 }
 
 /** Boss 三阶段状态机：践踏 AoE / 召唤尸潮 / 直线冲锋。 */
@@ -34,6 +43,7 @@ export class BossController {
   private slamCd = 3.5;
   private summonCd = 6;
   private chargeCd = 8;
+  private lightningCd = 5;
 
   constructor(private readonly rng: Rng) {}
 
@@ -75,6 +85,7 @@ export class BossController {
       this.summonAdds(pool, squad, out, BOSS.summon.count + this.phase * 10);
       this.slamCd = 1.2;
       this.chargeCd = 3.0;
+      this.lightningCd = 2.0;
     }
 
     this.fightTime += dt;
@@ -88,6 +99,7 @@ export class BossController {
     this.slamCd -= dt * speedUp;
     this.summonCd -= dt * speedUp;
     this.chargeCd -= dt * speedUp;
+    this.lightningCd -= dt * speedUp;
 
     const standoffZ = squad.z + BOSS.standoff;
 
@@ -120,6 +132,13 @@ export class BossController {
           b.x += (squad.x - b.x) * 0.9;
           this.telegraph = { x: b.x, z: squad.z, radius: BOSS.charge.laneHalfWidth, t: 0, dur: BOSS.charge.telegraph, kind: 'charge' };
           out.push({ type: 'bossCharge', x: b.x, z: b.z });
+        } else if (this.lightningCd <= 0) {
+          this.state = 'lightningTelegraph';
+          this.timer = BOSS.lightning.telegraph;
+          const lx = squad.x + this.rng.range(-6, 6);
+          const lz = squad.z - squad.depth * this.rng.range(0, 0.6);
+          this.telegraph = { x: lx, z: lz, radius: BOSS.lightning.radius, t: 0, dur: BOSS.lightning.telegraph, kind: 'lightning' };
+          out.push({ type: 'bossLightning', x: lx, z: lz, radius: this.telegraph.radius });
         } else if (this.summonCd <= 0) {
           this.state = 'summon';
           this.timer = 0.8;
@@ -140,6 +159,21 @@ export class BossController {
           this.slamCd = BOSS.slam.cooldown;
           this.state = 'slamRecover';
           this.timer = 0.6;
+        }
+        break;
+      }
+      case 'lightningTelegraph': {
+        this.timer -= dt;
+        if (this.telegraph) this.telegraph.t = 1 - Math.max(0, this.timer) / this.telegraph.dur;
+        b.z += (standoffZ - b.z) * Math.min(1, dt * 2.0);
+        if (this.timer <= 0) {
+          const tg = this.telegraph!;
+          this.applyAoe(squad, tg.x, tg.z, tg.radius, BOSS.lightning.damage * (1 + this.phase * 0.22) * rageDmg, out);
+          out.push({ type: 'bossLightningHit', x: tg.x, z: tg.z, radius: tg.radius });
+          this.telegraph = null;
+          this.lightningCd = BOSS.lightning.cooldown;
+          this.state = 'slamRecover';
+          this.timer = 0.5;
         }
         break;
       }

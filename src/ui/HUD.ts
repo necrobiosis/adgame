@@ -112,12 +112,24 @@ export class HUD {
 /** 世界坐标上飘出来的数字与提示。 */
 export class FloatingLayer {
   private readonly root: HTMLElement;
+  private readonly flashEl: HTMLElement;
   private live = 0;
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement('div');
     this.root.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden';
     parent.appendChild(this.root);
+    this.flashEl = document.createElement('div');
+    this.flashEl.className = 'screen-flash';
+    this.root.appendChild(this.flashEl);
+  }
+
+  /** 全屏白闪一下——落雷这种"天降打击"需要一瞬间的曝光过量感。 */
+  flash(color = '#dff2ff'): void {
+    this.flashEl.style.background = color;
+    this.flashEl.classList.remove('go');
+    void this.flashEl.offsetWidth; // 强制重排，让连续触发也能重新播放
+    this.flashEl.classList.add('go');
   }
 
   spawn(text: string, color: string, x: number, y: number, big: boolean): void {

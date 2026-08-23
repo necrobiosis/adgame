@@ -15,8 +15,9 @@ import { createCity } from './env/City';
 import { createBridge } from './env/Bridge';
 import { CRIMSON, DAY, createLights, createSky, createSkyEnvironment, type SceneLights, type SkyTheme } from './env/Sky';
 import { GoldBurst } from './fx/GoldBurst';
+import { Lightning } from './fx/Lightning';
 import { Particles } from './fx/Particles';
-import { TelegraphLane, TelegraphRing } from './fx/Telegraph';
+import { LightningReticle, TelegraphLane, TelegraphRing } from './fx/Telegraph';
 import { Tracers } from './fx/Tracers';
 import { BlockMesh } from './hud3d/BlockMesh';
 import { GateWall } from './hud3d/GateWall';
@@ -116,6 +117,15 @@ export class GameView {
   private readonly gold = new GoldBurst();
   private readonly ring = new TelegraphRing();
   private readonly lane = new TelegraphLane();
+  private readonly reticle = new LightningReticle();
+  private readonly lightning = new Lightning();
+  /** 上一帧 Boss 的 z——用来判断这一帧是不是正在高速冲锋，从而甩出拖尾电弧。 */
+  private lastBossZ = 0;
+  private hasLastBossZ = false;
+  private readonly tailA = new THREE.Vector3();
+  private readonly tailB = new THREE.Vector3();
+  private readonly strikeFrom = new THREE.Vector3();
+  private readonly strikeTo = new THREE.Vector3();
 
   /** 每关重建的静态场景。 */
   private levelRoot = new THREE.Group();
@@ -225,7 +235,10 @@ export class GameView {
     this.shells.count = 0;
     this.scene.add(this.shells);
 
-    this.scene.add(this.bars.mesh, this.tracers.mesh, this.sparks.mesh, this.smoke.mesh, this.gold.mesh, this.ring.mesh, this.lane.mesh);
+    this.scene.add(
+      this.bars.mesh, this.tracers.mesh, this.sparks.mesh, this.smoke.mesh, this.gold.mesh,
+      this.ring.mesh, this.lane.mesh, this.reticle.mesh, this.lightning.group,
+    );
   }
 
   /**
@@ -339,7 +352,7 @@ export class GameView {
     this.syncEnemies(world);
     this.syncSquad(world);
     this.syncShells(world);
-    this.syncBoss(world);
+    this.syncBoss(world, dt);
 
     for (const g of this.gateWalls) g.wall.update(dt);
     for (const gate of world.gates) {
@@ -363,6 +376,7 @@ export class GameView {
     this.sparks.update(dt);
     this.smoke.update(dt);
     this.gold.update(dt);
+    this.lightning.update(dt);
 
     if (!this.applyInspect(world)) {
       this.camera.update(this.r.camera, dt, world.squad.x, world.squad.z, world.squad.depth, world.boss.active);
@@ -529,7 +543,7 @@ export class GameView {
     if (n > 0) this.shells.instanceMatrix.needsUpdate = true;
   }
 
-  private syncBoss(world: World): void {
+  private syncBoss(world: World, dt: number): void {
     const batch = this.batches.get('boss')!;
     batch.begin();
     const b = world.boss.enemy;
@@ -549,17 +563,49 @@ export class GameView {
     }
     batch.end();
 
-    // 技能预警
+    // 技能预警：火/电/雷三种形状和配色，红圈已经拆开成三种能一眼分辨的语言
     const tg = world.boss.telegraph;
     if (tg && tg.kind === 'slam') {
-      this.ring.show(tg.x, tg.z, tg.radius, tg.t, 0xff3524);
+      this.ring.show(tg.x, tg.z, tg.radius, tg.t, 0xff6a12);
       this.lane.hide();
+      this.reticle.hide();
+      // 熔岩践踏预警期间往外冒火星，光一个圈不够"火"
+      if (this.rng.next() < 0.5) {
+        const rx = tg.x + (this.rng.next() - 0.5) * tg.radius * 1.4;
+        const rz = tg.z + (this.rng.next() - 0.5) * tg.radius * 1.4;
+        this.sparks.burst(rx, 0.1, rz, {
+          count: 1, color: 0xff9433, speed: [0.5, 1.4], size: [0.3, 0.55], life: [0.3, 0.55], grow: -0.5, lift: 3.2, drag: 0.5,
+        });
+      }
     } else if (tg && tg.kind === 'charge' && b) {
-      this.lane.show(tg.x, b.z, world.squad.z - 6, tg.radius, tg.t);
+      this.lane.show(tg.x, b.z, world.squad.z - 6, tg.radius, tg.t, 0x5fd0ff);
       this.ring.hide();
+      this.reticle.hide();
+    } else if (tg && tg.kind === 'lightning') {
+      this.reticle.show(tg.x, tg.z, tg.radius, tg.t, 0x8fe0ff);
+      this.ring.hide();
+      this.lane.hide();
     } else {
       this.ring.hide();
       this.lane.hide();
+      this.reticle.hide();
+    }
+
+    // 冲锋没有独立的"正在冲锋"事件——用这一帧 z 方向的瞬时速度反推是不是在
+    // 高速冲锋，是的话身后随手甩几道电弧拖尾，读起来像雷霆附体
+    if (b && b.alive && this.hasLastBossZ && dt > 0) {
+      const vz = (this.lastBossZ - b.z) / dt;
+      if (vz > 15 && this.rng.next() < 0.55) {
+        const bx = b.x + (this.rng.next() - 0.5) * 2;
+        const bz = b.z + 1.4 + this.rng.next() * 1.6;
+        this.tailA.set(bx, 0.3 + this.rng.next() * 0.8, bz);
+        this.tailB.set(bx + (this.rng.next() - 0.5) * 2.6, 0.1 + this.rng.next() * 1.8, bz + (this.rng.next() - 0.5) * 2.6);
+        this.lightning.spawn(this.tailA, this.tailB, { segments: 4, jitter: 0.5, thickness: 0.06, life: 0.12, color: 0x6fe0ff });
+      }
+    }
+    if (b) {
+      this.lastBossZ = b.z;
+      this.hasLastBossZ = true;
     }
   }
 
@@ -677,6 +723,28 @@ export class GameView {
         }
         case 'bossCharge': {
           this.camera.punch(0.3);
+          break;
+        }
+        case 'bossLightning': {
+          // 预警刚出现：落点先冒一缕电火花，提示玩家往哪看
+          this.sparks.burst(ev.x!, 0.3, ev.z!, {
+            count: 4, color: 0x8fe0ff, speed: [0.6, 2.2], size: [0.2, 0.4], life: [0.15, 0.3], grow: -0.5,
+          });
+          break;
+        }
+        case 'bossLightningHit': {
+          this.camera.punch(1.1);
+          this.strikeFrom.set(ev.x!, 26, ev.z!);
+          this.strikeTo.set(ev.x!, 0, ev.z!);
+          this.lightning.spawn(this.strikeFrom, this.strikeTo, {
+            segments: 9, jitter: 1.6, thickness: 0.16, life: 0.22, color: 0xc9f2ff,
+          });
+          this.sparks.burst(ev.x!, 0.3, ev.z!, {
+            count: 50, color: 0xaee8ff, speed: [8, 24], size: [0.6, 1.6], life: [0.25, 0.55], grow: 1.8, drag: 2.6,
+          });
+          this.smoke.burst(ev.x!, 0.4, ev.z!, {
+            count: 10, color: 0x8fb8c8, speed: [2, 6], size: [1.0, 2.0], life: [0.4, 0.8], grow: 2.6, drag: 2, lift: 1.4,
+          });
           break;
         }
         default:

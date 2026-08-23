@@ -203,6 +203,18 @@ html, body {
   white-space: nowrap;
 }
 .float.big { font-size: 27px; animation-duration: 1.35s; }
+
+.screen-flash {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  mix-blend-mode: screen;
+}
+.screen-flash.go { animation: screenFlash 0.28s ease-out; }
+@keyframes screenFlash {
+  0% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
 @keyframes floatUp {
   0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
   16%  { opacity: 1; transform: translate(-50%, -60%) scale(1.08); }

@@ -88,6 +88,24 @@ export class Audio {
     o.stop(ctx.currentTime + 1.35);
   }
 
+  /** 天降雷击：一声尖锐的高频"啪"，紧跟一段下滑的低频轰鸣当余响。 */
+  thunderCrack(): void {
+    if (!this.ctx || this.muted) return;
+    const ctx = this.ctx;
+    this.noiseBurst(0.09, 3200, 0.5, 'highpass');
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(520, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + 0.5);
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.38, ctx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.55);
+    o.connect(g).connect(this.master!);
+    o.start();
+    o.stop(ctx.currentTime + 0.6);
+  }
+
   win(): void {
     this.chime([523, 659, 784, 1047, 1319], 0.9, 0.2);
   }

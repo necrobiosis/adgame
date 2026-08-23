@@ -115,6 +115,8 @@ export type SimEventType =
   | 'bossSlam'      // AoE 预警出现
   | 'bossSlamHit'
   | 'bossCharge'
+  | 'bossLightning'    // 雷击预警出现
+  | 'bossLightningHit' // 落雷
   | 'win'
   | 'lose';
 
