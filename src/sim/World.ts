@@ -16,7 +16,7 @@ import { Rng } from '../core/Rng';
 import { BossController } from './Boss';
 import { Combat } from './Combat';
 import { EnemyPool } from './Enemies';
-import { applyGate } from './Gates';
+import { applyGate, deniedResult } from './Gates';
 import { MidBossController } from './MidBoss';
 import { Squad } from './Squad';
 import { LANE_SIGN, sideAtX } from './lanes';
@@ -416,7 +416,15 @@ export class World {
         g.taken = true;
         g.chosen = side;
         this.stats.gatesTaken++;
-        const res = applyGate(this.squad, lane.gate);
+        // 标价车道：钱不够就照常过去，但吃不到增益
+        const cost = lane.gate.cost ?? 0;
+        let res;
+        if (cost > 0 && this.gold < cost) {
+          res = deniedResult(cost);
+        } else {
+          if (cost > 0) this.gold -= cost;
+          res = applyGate(this.squad, lane.gate);
+        }
         this.gold += res.gold;
         this.stats.goldEarned += res.gold;
         this.squad.layout();

@@ -43,6 +43,13 @@ export interface GateResult {
   text: string;
   /** 金币变化。 */
   gold: number;
+  /** 因为钱不够而没吃到增益。 */
+  denied?: boolean;
+}
+
+/** 买不起这条车道时给的提示。 */
+export function deniedResult(cost: number): GateResult {
+  return { text: `金币不足（需 ${cost}）`, gold: 0, denied: true };
 }
 
 /** 把门的效果作用到方阵上。 */

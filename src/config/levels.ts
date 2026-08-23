@@ -15,6 +15,18 @@ export type GateType =
 export interface GateSpec {
   readonly type: GateType;
   readonly value: number;
+  /**
+   * 过这个门要付的金币。0 / 不填 = 免费。
+   *
+   * 金币在这之前**完全没有局内用途**，只是结算时入账的分数。标价车道让它
+   * 第一次成为可以花掉的资源：付费买当下的战力，代价是结算时进兵工厂的钱
+   * 变少——路边捡的每一枚金币、打穿高墙拿的每一份奖励，从此都要在
+   * "现在变强"和"以后变强"之间做取舍。
+   *
+   * 钱不够就走不了这条车道（照常前进，但拿不到增益），所以它同时也是一道
+   * 软门槛：想吃那条更强的线，就得先去把路边的钱捡够。
+   */
+  readonly cost?: number;
 }
 
 export interface WaveGroup {
@@ -114,7 +126,7 @@ const LEVEL_1: LevelDef = {
     { t: 'run', len: 44 },
     {
       t: 'choice',
-      left:  { gate: { type: 'cannon', value: 3 }, wave: swarm(180, 16), hint: '蜂群' },
+      left:  { gate: { type: 'cannon', value: 3, cost: 120 }, wave: swarm(180, 16), hint: '蜂群' },
       right: { gate: { type: 'armor', value: 40 }, wave: elite([{ kind: 'brute', count: 3 }, { kind: 'walker', count: 40 }]), hint: '精英' },
     },
     { t: 'run', len: 73 },
@@ -144,7 +156,7 @@ const LEVEL_2: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'mul', value: 2 }, wave: swarm(200, 24), hint: '蜂群' },
-      right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'brute', count: 3 }, { kind: 'screamer', count: 3 }]), hint: '精英' },
+      right: { gate: { type: 'weapon', value: 1, cost: 200 }, wave: elite([{ kind: 'brute', count: 3 }, { kind: 'screamer', count: 3 }]), hint: '精英' },
     },
     { t: 'run', len: 67 },
     { t: 'block', hp: 9000, span: 'full' },
@@ -163,7 +175,7 @@ const LEVEL_2: LevelDef = {
       t: 'choice',
       // 安全通道 vs 火力飞跃
       left:  { gate: { type: 'div', value: 2 }, wave: swarm(40), hint: '安全' },
-      right: { gate: { type: 'weapon', value: 2 }, wave: elite([{ kind: 'titan', count: 2 }, { kind: 'brute', count: 3 }, { kind: 'armored', count: 5 }]), hint: '精英' },
+      right: { gate: { type: 'weapon', value: 2, cost: 320 }, wave: elite([{ kind: 'titan', count: 2 }, { kind: 'brute', count: 3 }, { kind: 'armored', count: 5 }]), hint: '精英' },
     },
     { t: 'run', len: 64 },
     { t: 'wave', wave: swarm(300, 40) },
@@ -192,7 +204,7 @@ const LEVEL_3: LevelDef = {
     { t: 'run', len: 35 },
     {
       t: 'choice',
-      left:  { gate: { type: 'cannon', value: 6 }, wave: swarm(340, 44), hint: '蜂群' },
+      left:  { gate: { type: 'cannon', value: 6, cost: 420 }, wave: swarm(340, 44), hint: '蜂群' },
       right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 2 }, { kind: 'screamer', count: 4 }, { kind: 'armored', count: 8 }]), hint: '精英' },
     },
     { t: 'run', len: 67 },
@@ -203,7 +215,7 @@ const LEVEL_3: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'mul', value: 2 }, wave: swarm(380, 50), hint: '蜂群' },
-      right: { gate: { type: 'armor', value: 70 }, wave: elite([{ kind: 'titan', count: 3 }, { kind: 'spitter', count: 9 }]), hint: '精英' },
+      right: { gate: { type: 'armor', value: 70, cost: 500 }, wave: elite([{ kind: 'titan', count: 3 }, { kind: 'spitter', count: 9 }]), hint: '精英' },
     },
     { t: 'run', len: 61 },
     { t: 'wave', wave: swarm(360, 48) },
@@ -225,7 +237,7 @@ const LEVEL_4: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'mul', value: 3 }, wave: swarm(320, 46), hint: '蜂群' },
-      right: { gate: { type: 'weapon', value: 2 }, wave: elite([{ kind: 'brute', count: 4 }, { kind: 'titan', count: 2 }, { kind: 'spitter', count: 10 }]), hint: '精英' },
+      right: { gate: { type: 'weapon', value: 2, cost: 620 }, wave: elite([{ kind: 'brute', count: 4 }, { kind: 'titan', count: 2 }, { kind: 'spitter', count: 10 }]), hint: '精英' },
     },
     { t: 'run', len: 55 },
     { t: 'block', hp: 62000, span: 'full' },
@@ -282,7 +294,7 @@ const LEVEL_5: LevelDef = {
     { t: 'midboss', hp: 24000, scale: 1.35, name: '深渊先驱' },
     {
       t: 'choice',
-      left:  { gate: { type: 'cannon', value: 10 }, wave: swarm(600, 110), hint: '蜂群' },
+      left:  { gate: { type: 'cannon', value: 10, cost: 900 }, wave: swarm(600, 110), hint: '蜂群' },
       right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 7 }, { kind: 'leaper', count: 18 }, { kind: 'armored', count: 8 }]), hint: '精英' },
     },
     { t: 'run', len: 67 },
