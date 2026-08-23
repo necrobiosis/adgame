@@ -35,11 +35,11 @@ attribute float aDeath;
 /** 只把顶点蒙皮到当前姿态 —— 深度通道要的全部内容。 */
 const SKIN_POSITION = /* glsl */ `
   float phase = aPhase + uTime * aAnimSpeed;
-  vec3 skinned = boneApply(int(aSkin.x + 0.5), position, phase, aState) * aSkin.z
-               + boneApply(int(aSkin.y + 0.5), position, phase, aState) * aSkin.w;
+  vec3 skinned = boneApply(int(aSkin.x + 0.5), position, phase, aState, 0.0) * aSkin.z
+               + boneApply(int(aSkin.y + 0.5), position, phase, aState, 0.0) * aSkin.w;
   skinned.y += abs(sin(phase)) * 0.028;
   if (aDeath > 0.0) {
-    skinned = rotX(-1.45 * aDeath) * skinned;
+    skinned = deathRot(aDeath, fract(aPhase * 0.6180339)) * skinned;
     skinned.y -= aDeath * 0.12;
   }
 `;
@@ -79,21 +79,21 @@ const VERT_BODY = /* glsl */ `
   int bA = int(aSkin.x + 0.5);
   int bB = int(aSkin.y + 0.5);
 
-  vec3 skinned = boneApply(bA, position, phase, aState) * aSkin.z
-               + boneApply(bB, position, phase, aState) * aSkin.w;
+  vec3 skinned = boneApply(bA, position, phase, aState, aFlash) * aSkin.z
+               + boneApply(bB, position, phase, aState, aFlash) * aSkin.w;
 
   vec3 offset = position + objectNormal * 0.02;
-  vec3 skinnedOff = boneApply(bA, offset, phase, aState) * aSkin.z
-                  + boneApply(bB, offset, phase, aState) * aSkin.w;
+  vec3 skinnedOff = boneApply(bA, offset, phase, aState, aFlash) * aSkin.z
+                  + boneApply(bB, offset, phase, aState, aFlash) * aSkin.w;
   vec3 skinNormal = normalize(skinnedOff - skinned);
 
   // 行走时整体上下起伏
   skinned.y += abs(sin(phase)) * 0.028;
 
-  // 倒地：整个身体绕脚底往前翻
+  // 倒地：按实例挑一种死法（前扑 / 后仰 / 侧瘫 / 转着倒），不再整齐划一。
+  // 相位在死亡瞬间就停止推进了，所以拿它派生的随机数在整段动画里是稳定的。
   if (aDeath > 0.0) {
-    float a = -1.45 * aDeath;
-    mat3 r = rotX(a);
+    mat3 r = deathRot(aDeath, fract(aPhase * 0.6180339));
     skinned = r * skinned;
     skinNormal = r * skinNormal;
     skinned.y -= aDeath * 0.12;

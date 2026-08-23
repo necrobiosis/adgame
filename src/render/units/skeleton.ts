@@ -183,21 +183,43 @@ int boneParent(int b) {
   return -1;
 }
 
-// state: 0 = 行走，1 = 攻击
-float boneAngle(int b, float ph, float state) {
+/**
+ * 每根骨头这一帧的欧拉角（x = 前后摆，y = 转身，z = 侧倾）。
+ *
+ * 以前只返回一个绕 X 的角度，所以整套动作只有"前后摆"一个自由度——
+ * 没有转身、没有侧倾、没有扭腰，走路和攻击都读起来像纸片人。
+ *
+ * state: 0 = 行走，1 = 攻击
+ * flash: 受击闪白强度，顺便当作"刚挨了一下"的信号驱动一个退缩姿势
+ */
+vec3 boneAngles(int b, float ph, float state, float flash) {
   float sw = sin(ph);
-  if (b == BONE_THIGH_L) return sw * 0.72;
-  if (b == BONE_THIGH_R) return -sw * 0.72;
+  // 受击退缩：上半身往后仰、脑袋偏开，幅度很小但足以读出"疼"
+  float hit = clamp(flash, 0.0, 1.0);
+
+  if (b == BONE_THIGH_L) return vec3(sw * 0.72, 0.0, 0.0);
+  if (b == BONE_THIGH_R) return vec3(-sw * 0.72, 0.0, 0.0);
   // 膝盖只能往一个方向弯
-  if (b == BONE_SHIN_L)  return -max(0.0, -sin(ph + 0.9)) * 1.05;
-  if (b == BONE_SHIN_R)  return -max(0.0,  sin(ph + 0.9)) * 1.05;
-  if (b == BONE_ARM_L)   return mix(-sw * 0.42, -1.05 + sin(ph * 3.0) * 0.45, state);
-  if (b == BONE_ARM_R)   return mix( sw * 0.42, -1.05 + sin(ph * 3.0 + 1.7) * 0.45, state);
-  if (b == BONE_FORE_L)  return -0.3 - max(0.0,  sw) * 0.32 - state * 0.35;
-  if (b == BONE_FORE_R)  return -0.3 - max(0.0, -sw) * 0.32 - state * 0.35;
-  if (b == BONE_CHEST)   return sin(ph * 2.0) * 0.04;
-  if (b == BONE_HEAD)    return -sin(ph * 2.0) * 0.055;
-  return 0.0;
+  if (b == BONE_SHIN_L)  return vec3(-max(0.0, -sin(ph + 0.9)) * 1.05, 0.0, 0.0);
+  if (b == BONE_SHIN_R)  return vec3(-max(0.0,  sin(ph + 0.9)) * 1.05, 0.0, 0.0);
+  // 手臂：走路时前后摆，攻击时抬起来抡；再叠一点点外张，不再是贴着身体的两根棍
+  if (b == BONE_ARM_L)   return vec3(mix(-sw * 0.42, -1.05 + sin(ph * 3.0) * 0.45, state),
+                                     0.0,
+                                     mix(0.10, 0.30, state));
+  if (b == BONE_ARM_R)   return vec3(mix( sw * 0.42, -1.05 + sin(ph * 3.0 + 1.7) * 0.45, state),
+                                     0.0,
+                                     mix(-0.10, -0.30, state));
+  if (b == BONE_FORE_L)  return vec3(-0.3 - max(0.0,  sw) * 0.32 - state * 0.35, 0.0, 0.0);
+  if (b == BONE_FORE_R)  return vec3(-0.3 - max(0.0, -sw) * 0.32 - state * 0.35, 0.0, 0.0);
+  // 躯干：走路时随步伐扭腰 + 侧倾，攻击时拧向出手方向
+  if (b == BONE_CHEST)   return vec3(sin(ph * 2.0) * 0.04 - hit * 0.22,
+                                     -sw * mix(0.09, 0.20, state),
+                                     sw * 0.05);
+  // 脑袋反向补偿身体的扭动，视线才像一直盯着前方
+  if (b == BONE_HEAD)    return vec3(-sin(ph * 2.0) * 0.055 - hit * 0.16,
+                                     sw * 0.07 + hit * 0.18,
+                                     -sw * 0.04);
+  return vec3(0.0);
 }
 
 mat3 rotX(float a) {
@@ -207,16 +229,50 @@ mat3 rotX(float a) {
               0.0,  -s,   c);
 }
 
+mat3 rotY(float a) {
+  float c = cos(a), s = sin(a);
+  return mat3(  c, 0.0,  -s,
+              0.0, 1.0, 0.0,
+                s, 0.0,   c);
+}
+
+mat3 rotZ(float a) {
+  float c = cos(a), s = sin(a);
+  return mat3(  c,   s, 0.0,
+               -s,   c, 0.0,
+              0.0, 0.0, 1.0);
+}
+
 /** 把顶点按骨骼 b 所在的整条链变换到当前姿态。 */
-vec3 boneApply(int b, vec3 p, float ph, float state) {
+vec3 boneApply(int b, vec3 p, float ph, float state, float flash) {
   int cur = b;
   // 链最深是 3 级（骨盆 → 大臂 → 小臂），循环上限给 4 保险
   for (int i = 0; i < 4; i++) {
     if (cur < 0) break;
     vec3 pv = uPivot[cur];
-    p = pv + rotX(boneAngle(cur, ph, state)) * (p - pv);
+    vec3 a = boneAngles(cur, ph, state, flash);
+    // 只有真的用到某个轴时才乘那个矩阵，省掉绝大多数骨头的两次矩阵乘法
+    mat3 r = rotX(a.x);
+    if (abs(a.y) > 0.0001) r = rotY(a.y) * r;
+    if (abs(a.z) > 0.0001) r = rotZ(a.z) * r;
+    p = pv + r * (p - pv);
     cur = boneParent(cur);
   }
   return p;
+}
+
+/**
+ * 倒地姿态。以前所有尸体都是同一个"绕脚底向前直挺挺翻倒"，
+ * 一片尸山看过去整齐得出戏。这里按实例分出四种死法。
+ *
+ * v 是每个实例稳定的 0..1 随机数（死亡瞬间动画相位就冻住了，
+ * 所以可以直接拿相位派生，不用再加一条实例属性）。
+ */
+mat3 deathRot(float d, float v) {
+  float a = d * 1.45;
+  if (v < 0.25) return rotX(-a);                          // 向前扑倒
+  if (v < 0.50) return rotX(a * 0.95);                    // 向后仰倒
+  if (v < 0.75) return rotZ(a * 0.9) * rotX(-a * 0.35);   // 侧向瘫倒
+  return rotY(d * 1.9) * rotX(-a * 0.85);                 // 边转边倒
 }
 `;
