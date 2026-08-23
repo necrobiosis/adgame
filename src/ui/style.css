@@ -41,6 +41,13 @@ html, body {
   overflow: hidden;
 }
 #overlay > * { pointer-events: auto; }
+/*
+ * HUD 铺满整个画布，绝对不能吃掉指针事件——上面那条 `#overlay > *` 的
+ * 权重（1,0,0）压过了 `.hud` 自己的 `pointer-events: none`（0,1,0），
+ * 结果 HUD 把整块画布盖死，拖拽操控完全失效。这里用同等权重的选择器抢回来。
+ * HUD 内部真正要点的东西（空袭按钮）自己声明 pointer-events: auto。
+ */
+#overlay > .hud { pointer-events: none; }
 
 #rotate-hint {
   position: fixed;

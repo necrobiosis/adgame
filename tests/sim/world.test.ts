@@ -67,24 +67,37 @@ describe('World', () => {
     expect(w.squad.weaponLevel).toBe(1);
   });
 
-  it('全宽方块会挡住前进，打掉后放行', () => {
+  it('全宽方块会把前进拖到极慢，打掉后恢复速度', () => {
+    // 设计上方阵**永远不会被彻底钉死**——全宽方块留了两条路肩缝，硬挤也能
+    // 挤过去，只是慢得像蜗牛。停下来干等的手感太糟，所以这里验的是
+    // "慢到几乎不动 + 打掉之后立刻恢复"，而不是"完全静止"。
     const w = new World({ levelId: 2, upgrades: NO_UPGRADES, seed: 3 });
     const full = w.blocks.find((b) => b.span === 'full')!;
     const dt = 1 / 60;
-    let stalled = false;
-    let released = false;
+    let crawl = Infinity;
+    let openRoad = 0;
+    let movedWhileBlocked = false;
+    let passed = false;
     let t = 0;
     while (w.phase === 'running' && t < 300) {
       w.steer = LANE_SIGN.left;
       const z0 = w.squad.z;
       w.step(dt);
       w.drainEvents();
-      if (full.alive && w.squad.z >= full.z - 6 && w.squad.z - z0 < 1e-6) stalled = true;
-      if (stalled && !full.alive && w.squad.z > full.z) released = true;
+      const speed = (w.squad.z - z0) / dt;
+      const atBlock = full.alive && w.squad.z >= full.z - 6 && w.squad.z <= full.z + 2;
+      if (atBlock) {
+        crawl = Math.min(crawl, speed);
+        if (speed > 0) movedWhileBlocked = true;
+      } else if (w.squad.z < full.z - 30 && speed > 0) {
+        openRoad = Math.max(openRoad, speed);
+      }
+      if (w.squad.z > full.z + 4) passed = true;
       t += dt;
     }
-    expect(stalled).toBe(true);
-    expect(released).toBe(true);
+    expect(movedWhileBlocked, '顶着方块时仍然应当在往前挪，不能被彻底钉死').toBe(true);
+    expect(passed, '最终应当越过方块（打掉了，或者从路肩缝里挤过去）').toBe(true);
+    expect(crawl, '挤缝时的速度应当远低于空旷路段').toBeLessThan(openRoad * 0.4);
   });
 
   it('升级会真实提升战斗力：满配比裸配打得更远/更快', () => {

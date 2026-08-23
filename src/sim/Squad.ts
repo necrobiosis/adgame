@@ -224,7 +224,9 @@ export class Squad {
       return;
     }
     // 人越多方阵越宽（但不超出路面），保持一个紧凑的方块而不是长队。
-    const cols = clampInt(Math.ceil(Math.sqrt(n * 2.2)), 1, Math.max(FORMATION_MAX_COLS, 22));
+    // 上限就是 FORMATION_MAX_COLS。以前这里写的是 max(FORMATION_MAX_COLS, 22)，
+    // 等于把配置项架空了，方阵能一路铺到 22 列、宽过整条路。
+    const cols = clampInt(Math.ceil(Math.sqrt(n * 2.2)), 1, FORMATION_MAX_COLS);
     const spacing = Math.min(SLOT_SPACING_X, (ROAD_HALF * 2 - 3) / Math.max(1, cols));
     this.cols = cols;
     this.rows = Math.ceil(n / cols);

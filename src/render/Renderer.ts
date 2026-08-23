@@ -173,9 +173,13 @@ export class ChaseCamera {
     this.depth += (squadDepth - this.depth) * Math.min(1, dt * 2.2);
     // Boss 体型从 3.4 提到 4.4（约 +30%），拉远量跟着放大同一个比例，
     // 否则变大的 Boss 会在竖屏画面里顶到镜头
-    const height = 12 + this.zoom * 4.4 + this.depth * 0.44;
-    const back = 18 + this.zoom * 7.2 + this.depth * 0.98;
-    const ahead = 28 + this.zoom * 7.8 + this.depth * 0.35;
+    // 纵深对镜头的影响必须封顶：方阵收窄之后行数变多，满编能拖出五十多米
+    // 的长队，照原来的系数镜头会一路退到七十米外，人小成一片色块——而实际
+    // 画出来的只有最前面十个人，镜头根本不需要框住整条队伍。
+    const depth = Math.min(this.depth, 6);
+    const height = 8.6 + this.zoom * 5.0 + depth * 0.44;
+    const back = 12.6 + this.zoom * 8.4 + depth * 0.98;
+    const ahead = 25 + this.zoom * 8.6 + depth * 0.35;
 
     const tx = squadX * 0.42;
     const k = Math.min(1, dt * 4.5);

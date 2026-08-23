@@ -261,10 +261,14 @@ export class World {
     this.squad.x = x;
 
     // ── 前进 ────────────────────────────────────────────────
+    // 方阵永远不会被墙彻底钉住：全宽方块留了两条路肩缝，硬挤也能挤过去，
+    // 只是慢得像蜗牛；半宽墙压根不挡路。停下来干等的手感太糟，"打不掉就
+    // 一直卡在这儿"不是这个游戏该有的节奏。
+    let advanceFactor = 1;
+    if (blk && blk.span === 'full' && blk.alive && this.squad.z >= blk.z - BLOCK_STOP_GAP) {
+      advanceFactor = BLOCK.squeezeFactor;
+    }
     let canAdvance = true;
-    if (blk && blk.span === 'full' && this.squad.z >= blk.z - BLOCK_STOP_GAP) canAdvance = false;
-    // 主动撞墙时和全宽方块一样停下来啃
-    if (this.ramming && blk && this.squad.z >= blk.z - BLOCK_STOP_GAP) canAdvance = false;
     if (this.bossTriggered && this.squad.z >= this.bossArenaTargetZ) canAdvance = false;
     if (canAdvance) {
       // 压在接触面上的僵尸会把方阵顶住 —— 尸潮本身就是一堵会推回来的墙
@@ -272,7 +276,7 @@ export class World {
         MELEE.minAdvanceFactor,
         1 / (1 + this.enemies.contactCount * MELEE.advanceDrag),
       );
-      this.squad.z += ADVANCE_SPEED * drag * dt;
+      this.squad.z += ADVANCE_SPEED * drag * advanceFactor * dt;
       if (this.bossTriggered) this.squad.z = Math.min(this.squad.z, this.bossArenaTargetZ);
     }
     this.squad.layout();

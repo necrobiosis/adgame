@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ENEMY_STATS, ROAD_HALF } from '../../config/balance';
+import { ROAD_HALF } from '../../config/balance';
 import type { LaneChoice } from '../../config/levels';
 import { gateVisual } from '../../sim/Gates';
 import { LANE_SIGN, type Side } from '../../sim/lanes';
@@ -84,7 +84,9 @@ export class GateWall {
 
     // 顶部铭牌
     const plate = new THREE.Mesh(
-      new THREE.PlaneGeometry(halfW * 2 * 0.92, 2.45),
+      // 路面拉宽之后每条车道有 13 米，铭牌照车道宽铺会大到贴脸时被裁掉；
+      // 封个上限，保证走到跟前那一行字还是完整的
+      new THREE.PlaneGeometry(Math.min(halfW * 2 * 0.92, 8.6), 1.62),
       new THREE.MeshBasicMaterial({
         map: makePlateTexture(v.title, lane, v.color, v.buff),
         transparent: true,
@@ -92,7 +94,7 @@ export class GateWall {
         toneMapped: false,
       }),
     );
-    plate.position.set(cx, WALL_H + 1.02, -0.05);
+    plate.position.set(cx, WALL_H + 0.82, -0.05);
     plate.rotation.y = Math.PI;
     plate.renderOrder = 6;
     this.group.add(plate);
@@ -152,56 +154,39 @@ function makeGlyphTexture(glyph: string): THREE.CanvasTexture {
 }
 
 /**
- * 前方那波怪的实际构成，例如 "泰坦×3  重甲×8"。
+ * 门顶的铭牌：**只有一行大字**。
  *
- * 之前铭牌上只有蜂群/精英/安全三个标签，玩家从来看不到真实数量——
- * 于是"选哪条"更接近抛硬币而不是决策。参考同类游戏的结论很一致：
- * 这类游戏的深度全部来自**看得见的取舍**，信息不给足，门再多也没用。
+ * 上一版把标价和前方怪物构成都堆了上去，信息是全了，但一眼扫过去要读三行
+ * 小字——在一个手指按着屏幕往前冲的游戏里，那等于什么都没读到。现在只留
+ * 一句最关键的话：这个门给你什么（要钱的就把价钱并进这一行）。
  */
-function waveSummary(wave: LaneChoice['wave']): string {
-  const parts = [...wave.groups]
-    .filter((g) => g.count > 0)
-    .sort((a, b) => ENEMY_STATS[b.kind].gold * b.count - ENEMY_STATS[a.kind].gold * a.count)
-    .slice(0, 3)
-    .map((g) => `${ENEMY_STATS[g.kind].label}×${g.count}`);
-  return parts.join('  ');
-}
-
-/** 门顶的中文铭牌：增益 + 标价 + 前方怪物构成。 */
 function makePlateTexture(title: string, lane: LaneChoice, color: number, buff: boolean): THREE.CanvasTexture {
   const hex = `#${color.toString(16).padStart(6, '0')}`;
   const cost = lane.gate.cost ?? 0;
-  return canvasTexture(512, 260, (ctx, w, h) => {
+  const line = cost > 0 ? `${title}  ${cost}金` : title;
+  return canvasTexture(512, 168, (ctx, w, h) => {
     ctx.clearRect(0, 0, w, h);
     roundRect(ctx, 6, 6, w - 12, h - 12, 22);
-    ctx.fillStyle = 'rgba(12,16,24,0.84)';
+    ctx.fillStyle = 'rgba(12,16,24,0.86)';
     ctx.fill();
-    ctx.lineWidth = 6;
+    ctx.lineWidth = 7;
     ctx.strokeStyle = hex;
     ctx.stroke();
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '800 60px "PingFang SC","Microsoft YaHei",system-ui,sans-serif';
-    ctx.fillStyle = buff ? '#ffffff' : '#ff9c9c';
-    ctx.fillText(title, w / 2, 58);
-
-    // 标价（免费车道就不占这一行）
-    if (cost > 0) {
-      ctx.font = '800 44px "PingFang SC","Microsoft YaHei",system-ui,sans-serif';
-      ctx.fillStyle = '#ffd44d';
-      ctx.fillText(`💰 ${cost}`, w / 2, 124);
+    // 字长了就自动缩，保证永远是"一行大字"而不是换行或者溢出
+    let size = 82;
+    ctx.font = `900 ${size}px "PingFang SC","Microsoft YaHei",system-ui,sans-serif`;
+    while (ctx.measureText(line).width > w - 44 && size > 34) {
+      size -= 4;
+      ctx.font = `900 ${size}px "PingFang SC","Microsoft YaHei",system-ui,sans-serif`;
     }
-
-    // 前方那波怪的真实构成
-    const isSwarm = lane.hint === '蜂群';
-    const badge = isSwarm ? '#7fd0ff' : lane.hint === '安全' ? '#8effb0' : '#ff8b6a';
-    ctx.font = '700 36px "PingFang SC","Microsoft YaHei",system-ui,sans-serif';
-    ctx.fillStyle = badge;
-    ctx.fillText(lane.hint, w / 2, cost > 0 ? 176 : 138);
-    ctx.font = '600 32px "PingFang SC","Microsoft YaHei",system-ui,sans-serif';
-    ctx.fillStyle = 'rgba(226,232,240,0.86)';
-    ctx.fillText(waveSummary(lane.wave), w / 2, cost > 0 ? 220 : 190);
+    ctx.lineWidth = 9;
+    ctx.strokeStyle = 'rgba(8,11,17,0.9)';
+    ctx.strokeText(line, w / 2, h / 2);
+    ctx.fillStyle = buff ? '#ffffff' : '#ff9c9c';
+    ctx.fillText(line, w / 2, h / 2);
   }, { wrap: THREE.ClampToEdgeWrapping });
 }
 

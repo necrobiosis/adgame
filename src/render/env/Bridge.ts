@@ -188,7 +188,7 @@ export function createBridge(length: number, rng: Rng, envDetail = 1): THREE.Gro
   girderPart.dispose();
 
   const diaphragms: THREE.Matrix4[] = [];
-  const diaGeo = ensureSurf(chamferBox(11.6, 0.9, 0.18, 0.04));
+  const diaGeo = ensureSurf(chamferBox(ROAD_HALF * 2 - 6.4, 0.9, 0.18, 0.04));
   for (let z = z0; z < z0 + L; z += 11) diaphragms.push(trs(0, -2.4, z));
   g.add(instancedFrom(diaGeo, steel, diaphragms));
 
