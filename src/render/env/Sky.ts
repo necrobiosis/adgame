@@ -38,14 +38,16 @@ export const DAY: SkyTheme = {
  * 更浓烈的末日——整局基调递进而不是割裂。
  */
 export const APOCALYPSE: SkyTheme = {
-  top: 0x2a2620,
-  horizon: 0x8a6a4a,
-  ground: 0x3a332c,
-  fog: 0x6a5c48,
-  sun: 0xffb066,
-  ambient: 0x5a5040,
+  // 玩家反馈整体太暗——保留末日的暖灰/焦土色相，把明度整体提一档，
+  // 太阳强度也从 5 提到 7.5，场景细节和角色要看得清楚，不只是"很阴沉"
+  top: 0x4a4438,
+  horizon: 0xa8875f,
+  ground: 0x554c3f,
+  fog: 0x8a7a5e,
+  sun: 0xffc27a,
+  ambient: 0x7a6f56,
   sunDir: [-0.4, 0.5, 0.38],
-  sunIntensity: 5,
+  sunIntensity: 7.5,
 };
 
 /**
@@ -151,8 +153,10 @@ export function createLights(theme: SkyTheme, shadowMapSize: number): SceneLight
     sun.shadow.normalBias = (34 / shadowMapSize) * 2.5;
   }
 
-  const hemi = new THREE.HemisphereLight(theme.horizon, theme.ambient, 0.2);
-  const fill = new THREE.DirectionalLight(theme.ambient, 0.14);
+  // 玩家反馈整体太暗——这两个是所有主题共用的基础环境光，调亮后 CRIMSON
+  // 也跟着一起受益，不用每个主题各调一遍
+  const hemi = new THREE.HemisphereLight(theme.horizon, theme.ambient, 0.32);
+  const fill = new THREE.DirectionalLight(theme.ambient, 0.22);
   fill.position.set(-dir.x * 40, 18, -dir.z * 40);
 
   return { sun, hemi, fill, all: [sun, sun.target, hemi, fill] };

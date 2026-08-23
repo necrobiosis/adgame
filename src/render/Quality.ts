@@ -23,9 +23,10 @@ export interface QualitySettings {
   /**
    * 方阵视觉呈现上限（≤ soldierInstances）。
    *
-   * 这不是性能预算，是"这条 18 米宽的桥看起来别太挤"的设计上限：人数一多，
-   * 阵型会往后拉成一条很深的队列，超过这个数就不再渲染更多、只把最前排的
-   * 露出来，剩下的用头顶的总数标签表示（见 HUD 的 SquadBadge）。
+   * 这不是性能预算，是"这条 18 米宽的桥看起来别太挤"的设计上限——固定给
+   * 10，三档画质统一：人数一多，阵型会往后拉成一条很深的队列，超过 10 就
+   * 不再渲染更多、只把最前排的 10 人露出来，剩下的用头顶的总数标签表示
+   * （见 HUD 的 SquadBadge），直到被打回 10 人以下才会重新看到实际人数。
    */
   readonly soldierVisualCap: number;
   /** 同屏最多画多少门大炮（单门约 6.6k 面，是场上最重的道具）。 */
@@ -55,7 +56,7 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
     lengthDetail: 1,
     accessory: 2,
     soldierInstances: 220,
-    soldierVisualCap: 130,
+    soldierVisualCap: 10,
     cannonInstances: 32,
     shadowMap: 2048,
     // 杂兵不投影 —— 阴影通道要把所有投影体再画一遍，几百个高模杂兵直接让
@@ -84,7 +85,7 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
     lengthDetail: 0.7,
     accessory: 1,
     soldierInstances: 170,
-    soldierVisualCap: 100,
+    soldierVisualCap: 10,
     cannonInstances: 20,
     shadowMap: 1024,
     crowdShadows: false,
@@ -102,7 +103,7 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
     lengthDetail: 0.4,
     accessory: 0,
     soldierInstances: 100,
-    soldierVisualCap: 70,
+    soldierVisualCap: 10,
     cannonInstances: 12,
     shadowMap: 0,
     crowdShadows: false,
