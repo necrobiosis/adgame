@@ -259,8 +259,19 @@ export class Game {
     return QUALITY[this.renderer.quality.level].label;
   }
 
+  /**
+   * 命中顿帧：重击的那一瞬间把模拟时间压慢一小段。
+   * 研究结论很明确 —— 40~80ms 的微停顿比任何动画都更能卖出"打击感"。
+   * 用减速而不是硬冻结，操作不会有"卡住了"的手感。
+   */
+  private hitstop = 0;
+
   private stepWorld(world: World, dt: number): void {
     this.input.tick(dt);
+    if (this.hitstop > 0) {
+      this.hitstop = Math.max(0, this.hitstop - dt);
+      dt *= 0.22;
+    }
     this.acc += dt;
     let steps = 0;
     const events: SimEvent[] = [];
@@ -337,6 +348,17 @@ export class Game {
           this.audio.thunderCrack(pan(ev.x));
           this.floats.flash();
           break;
+        default: break;
+      }
+    }
+
+    // 重击顿帧。取最大值而不是累加，连续爆炸不会把游戏拖成慢动作。
+    for (const ev of events) {
+      switch (ev.type) {
+        case 'bossSlamHit':
+        case 'bossLightningHit': this.hitstop = Math.max(this.hitstop, 0.075); break;
+        case 'blockDestroyed': this.hitstop = Math.max(this.hitstop, 0.06); break;
+        case 'midbossAbilityHit': this.hitstop = Math.max(this.hitstop, 0.05); break;
         default: break;
       }
     }

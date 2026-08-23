@@ -15,9 +15,12 @@ import { createCity } from './env/City';
 import { createBridge } from './env/Bridge';
 import { Dragon } from './env/Dragon';
 import { APOCALYPSE, CRIMSON, createLights, createSky, createSkyEnvironment, type SceneLights, type SkyTheme } from './env/Sky';
+import { Decals } from './fx/Decals';
+import { FlashLights } from './fx/FlashLights';
 import { GoldBurst } from './fx/GoldBurst';
 import { Lightning } from './fx/Lightning';
 import { Particles } from './fx/Particles';
+import { Shockwaves } from './fx/Shockwaves';
 import { LightningReticle, TelegraphLane, TelegraphRing } from './fx/Telegraph';
 import { Tracers } from './fx/Tracers';
 import { BlockMesh } from './hud3d/BlockMesh';
@@ -130,6 +133,12 @@ export class GameView {
   /** 天上的装饰性飞龙——不参与战斗，纯氛围点缀，所有关卡都能看到。 */
   private readonly dragon = new Dragon();
   private readonly gold = new GoldBurst();
+  /** 地面留痕：血迹 / 尸液 / 焦痕。打完一场仗地上要看得出来。 */
+  private readonly decals = new Decals(160);
+  /** 爆炸的动态点光。常驻场景，只改强度，避免灯数变化触发着色器重编译。 */
+  private readonly flashes = new FlashLights(3);
+  /** 爆炸冲击波环。 */
+  private readonly waves = new Shockwaves(24);
   private readonly ring = new TelegraphRing();
   private readonly lane = new TelegraphLane();
   private readonly reticle = new LightningReticle();
@@ -298,6 +307,7 @@ export class GameView {
       this.bars.mesh, this.tracers.mesh, this.sparks.mesh, this.smoke.mesh, this.gold.mesh,
       this.ring.mesh, this.lane.mesh, this.reticle.mesh, this.lightning.group, this.midRing.mesh,
       this.ambientSmoke.mesh, this.dragon.group,
+      this.decals.mesh, this.waves.mesh, this.flashes.group,
     );
   }
 
@@ -389,6 +399,9 @@ export class GameView {
     this.gateWalls = [];
     this.blockMeshes = [];
     this.levelRoot = new THREE.Group();
+    // 地面留痕和爆闪不跟着换关：上一关的血迹留到下一关是穿帮
+    this.decals.clear();
+    this.flashes.reset();
   }
 
   /**
@@ -462,6 +475,9 @@ export class GameView {
     this.smoke.update(dt);
     this.gold.update(dt);
     this.lightning.update(dt);
+    this.decals.update(dt);
+    this.waves.update(dt);
+    this.flashes.update(dt);
     this.updateAmbientSmoke(dt);
     this.dragon.update(dt, world.squad.x * 0.3, world.squad.z + 90);
 
@@ -790,17 +806,25 @@ export class GameView {
             count: 8, color: 0xffb03a, speed: [2, 7], size: [0.5, 1.0], life: [0.1, 0.24], grow: -1.5, drag: 6,
           });
           this.smoke.burst(ev.x!, ev.y! + 0.7, ev.z! + 1.0, {
-            count: 4, color: 0x9c9c9c, speed: [0.6, 2.2], size: [0.7, 1.3], life: [0.4, 0.8], grow: 2.2, drag: 2.4, lift: 1.2,
+            count: 4, color: 0x9c9c9c, color2: 0x4a4744, speed: [0.6, 2.2], size: [0.7, 1.3],
+            life: [0.4, 0.8], grow: 2.2, drag: 2.4, lift: 1.2, fadeIn: 0.15,
           });
+          this.flashes.flash(ev.x!, ev.y! + 0.9, ev.z! + 1.2, 0xffb257, 46, 0.11);
           break;
         }
         case 'shellImpact': {
+          // 火星从亮黄烧到暗红，并且沿飞出方向拖成条
           this.sparks.burst(ev.x!, 0.5, ev.z!, {
-            count: 26, color: 0xffa227, speed: [4, 15], size: [0.6, 1.5], life: [0.15, 0.42], grow: 1.4, drag: 3.5,
+            count: 26, color: 0xfff0b0, color2: 0xc42a08, speed: [4, 15], size: [0.6, 1.5],
+            life: [0.15, 0.42], grow: 1.4, drag: 3.5, stretch: 2.2,
           });
           this.smoke.burst(ev.x!, 0.6, ev.z!, {
-            count: 10, color: 0x6d6a66, speed: [1.5, 5], size: [1.0, 2.2], life: [0.5, 1.1], grow: 3.2, drag: 2, lift: 1.6,
+            count: 10, color: 0x8b857e, color2: 0x3a3733, speed: [1.5, 5], size: [1.0, 2.2],
+            life: [0.5, 1.1], grow: 3.2, drag: 2, lift: 1.6, fadeIn: 0.2,
           });
+          this.waves.spawn(ev.x!, ev.z!, 0.6, (ev.radius ?? 4.6) * 1.5, 0xffb257, 0.42);
+          this.flashes.flash(ev.x!, 1.4, ev.z!, 0xff9838, 90, 0.22);
+          this.decals.add('scorch', ev.x!, ev.z!, (ev.radius ?? 4.6) * 1.1, 0.34);
           this.camera.punch(0.16);
           break;
         }
@@ -808,12 +832,18 @@ export class GameView {
           const kind = ev.kind ?? 'walker';
           const big = kind === 'brute' || kind === 'titan' || kind === 'midboss';
           this.sparks.burst(ev.x!, ev.y!, ev.z!, {
-            count: big ? 16 : 4, color: 0x8fbf4a,
-            speed: [1.5, big ? 8 : 4], size: [0.3, big ? 1.0 : 0.5], life: [0.15, 0.4], grow: -0.4, gravity: 6, drag: 1.5,
+            count: big ? 16 : 4, color: 0xb6e05a, color2: 0x2f4a10,
+            speed: [1.5, big ? 8 : 4], size: [0.3, big ? 1.0 : 0.5], life: [0.15, 0.4],
+            grow: -0.4, gravity: 6, drag: 1.5, stretch: big ? 1.4 : 0.6,
           });
+          // 尸液留痕：小怪按概率、大怪必留，否则一片尸山之后地面还是干净的
+          if (big || this.rng.next() < 0.16) {
+            this.decals.add('ichor', ev.x!, ev.z!, big ? 3.4 : 1.5, big ? 0.8 : 0.55);
+          }
           if (big) {
             this.gold.burst(ev.x!, 0.4, ev.z!, 4);
             this.camera.punch(0.08);
+            this.waves.spawn(ev.x!, ev.z!, 0.3, 3.2, 0x8fbf4a, 0.34, 0.7);
           } else if (this.rng.next() < 0.06) {
             this.gold.burst(ev.x!, 0.3, ev.z!, 1);
           }
@@ -827,8 +857,10 @@ export class GameView {
         }
         case 'soldierDown': {
           this.sparks.burst(ev.x!, ev.y!, ev.z!, {
-            count: 5, color: 0xd93b3b, speed: [1.2, 3.6], size: [0.28, 0.5], life: [0.2, 0.45], gravity: 8, drag: 1.6,
+            count: 5, color: 0xe85252, color2: 0x5a0d0d, speed: [1.2, 3.6], size: [0.28, 0.5],
+            life: [0.2, 0.45], gravity: 8, drag: 1.6, stretch: 0.8,
           });
+          this.decals.add('blood', ev.x!, ev.z!, 1.7, 0.7);
           break;
         }
         case 'blockHit': {
@@ -839,11 +871,16 @@ export class GameView {
         }
         case 'blockDestroyed': {
           this.sparks.burst(ev.x!, ev.y!, ev.z!, {
-            count: 40, color: 0xffc93a, speed: [5, 18], size: [0.6, 1.6], life: [0.25, 0.6], grow: 0.8, drag: 2.5,
+            count: 40, color: 0xfff3c0, color2: 0xd04a0a, speed: [5, 18], size: [0.6, 1.6],
+            life: [0.25, 0.6], grow: 0.8, drag: 2.5, stretch: 2.6,
           });
           this.smoke.burst(ev.x!, ev.y!, ev.z!, {
-            count: 14, color: 0x7b7671, speed: [2, 7], size: [1.2, 2.6], life: [0.6, 1.3], grow: 3, drag: 1.8, lift: 2,
+            count: 14, color: 0x938d86, color2: 0x35322e, speed: [2, 7], size: [1.2, 2.6],
+            life: [0.6, 1.3], grow: 3, drag: 1.8, lift: 2, fadeIn: 0.18,
           });
+          this.waves.spawn(ev.x!, ev.z!, 1.0, 13, 0xffd06a, 0.6, 1.2);
+          this.flashes.flash(ev.x!, 2.2, ev.z!, 0xffc061, 150, 0.3);
+          this.decals.add('scorch', ev.x!, ev.z! - 1.4, 7, 0.5);
           this.gold.burst(ev.x!, 1.4, ev.z! - 1.4, 46);
           this.camera.punch(0.5);
           this.floats.push({ text: `+${ev.amount ?? 0} 金币`, color: '#ffd44d', x: ev.x!, y: 3.2, z: ev.z!, big: true });
@@ -868,26 +905,38 @@ export class GameView {
         case 'bossSpawn': {
           this.camera.punch(0.9);
           this.smoke.burst(ev.x!, 1, ev.z!, {
-            count: 30, color: 0x8a5a4a, speed: [4, 14], size: [2, 4], life: [0.8, 1.6], grow: 4, drag: 1.6, lift: 1,
+            count: 30, color: 0x9a6a58, color2: 0x2e2320, speed: [4, 14], size: [2, 4],
+            life: [0.8, 1.6], grow: 4, drag: 1.6, lift: 1, fadeIn: 0.2,
           });
+          this.waves.spawn(ev.x!, ev.z!, 1.5, 22, 0xff7a3a, 0.9, 1.1);
+          this.flashes.flash(ev.x!, 3, ev.z!, 0xff6a2a, 120, 0.5);
+          this.decals.add('scorch', ev.x!, ev.z!, 11, 0.45);
           break;
         }
         case 'bossPhase': {
           this.camera.punch(0.7);
           this.sparks.burst(ev.x!, 1.5, ev.z!, {
-            count: 60, color: 0xff5b2e, speed: [8, 26], size: [0.8, 2.0], life: [0.4, 0.9], grow: 1.5, drag: 2,
+            count: 60, color: 0xffd08a, color2: 0xc02a08, speed: [8, 26], size: [0.8, 2.0],
+            life: [0.4, 0.9], grow: 1.5, drag: 2, stretch: 2.4,
           });
+          this.waves.spawn(ev.x!, ev.z!, 1.2, 18, 0xff5b2e, 0.7, 1.3);
+          this.flashes.flash(ev.x!, 3, ev.z!, 0xff5b2e, 130, 0.4);
           this.floats.push({ text: `第 ${ev.amount} 阶段`, color: '#ff6b3d', x: ev.x!, y: 5, z: ev.z!, big: true });
           break;
         }
         case 'bossSlamHit': {
           this.camera.punch(1.0);
           this.sparks.burst(ev.x!, 0.4, ev.z!, {
-            count: 46, color: 0xff4022, speed: [10, 26], size: [0.8, 2.2], life: [0.3, 0.7], grow: 2.4, drag: 2.6,
+            count: 46, color: 0xffe0a0, color2: 0xc41808, speed: [10, 26], size: [0.8, 2.2],
+            life: [0.3, 0.7], grow: 2.4, drag: 2.6, stretch: 2.8,
           });
           this.smoke.burst(ev.x!, 0.5, ev.z!, {
-            count: 18, color: 0x6b5a52, speed: [4, 12], size: [1.6, 3.4], life: [0.7, 1.4], grow: 4, drag: 1.6, lift: 2,
+            count: 18, color: 0x7d6b62, color2: 0x2f2926, speed: [4, 12], size: [1.6, 3.4],
+            life: [0.7, 1.4], grow: 4, drag: 1.6, lift: 2, fadeIn: 0.18,
           });
+          this.waves.spawn(ev.x!, ev.z!, 1.0, (ev.radius ?? 6.4) * 2.2, 0xff5320, 0.55, 1.4);
+          this.flashes.flash(ev.x!, 1.6, ev.z!, 0xff4a20, 160, 0.3);
+          this.decals.add('scorch', ev.x!, ev.z!, (ev.radius ?? 6.4) * 1.6, 0.5);
           break;
         }
         case 'bossCharge': {
@@ -909,18 +958,26 @@ export class GameView {
             segments: 9, jitter: 1.6, thickness: 0.16, life: 0.22, color: 0xc9f2ff,
           });
           this.sparks.burst(ev.x!, 0.3, ev.z!, {
-            count: 50, color: 0xaee8ff, speed: [8, 24], size: [0.6, 1.6], life: [0.25, 0.55], grow: 1.8, drag: 2.6,
+            count: 50, color: 0xeafaff, color2: 0x2f7aa0, speed: [8, 24], size: [0.6, 1.6],
+            life: [0.25, 0.55], grow: 1.8, drag: 2.6, stretch: 3.0,
           });
           this.smoke.burst(ev.x!, 0.4, ev.z!, {
-            count: 10, color: 0x8fb8c8, speed: [2, 6], size: [1.0, 2.0], life: [0.4, 0.8], grow: 2.6, drag: 2, lift: 1.4,
+            count: 10, color: 0xa8cede, color2: 0x3c4a52, speed: [2, 6], size: [1.0, 2.0],
+            life: [0.4, 0.8], grow: 2.6, drag: 2, lift: 1.4, fadeIn: 0.2,
           });
+          this.waves.spawn(ev.x!, ev.z!, 0.8, (ev.radius ?? 5.2) * 2.4, 0xbfefff, 0.5, 1.5);
+          this.flashes.flash(ev.x!, 2.4, ev.z!, 0xbfefff, 220, 0.26);
+          this.decals.add('scorch', ev.x!, ev.z!, (ev.radius ?? 5.2) * 1.5, 0.52);
           break;
         }
         case 'midbossSpawn': {
           this.camera.punch(0.5);
           this.smoke.burst(ev.x!, 1, ev.z!, {
-            count: 16, color: 0x5a7a3a, speed: [3, 9], size: [1.2, 2.4], life: [0.5, 1.0], grow: 3, drag: 1.6, lift: 1,
+            count: 16, color: 0x6f9448, color2: 0x22301a, speed: [3, 9], size: [1.2, 2.4],
+            life: [0.5, 1.0], grow: 3, drag: 1.6, lift: 1, fadeIn: 0.2,
           });
+          this.waves.spawn(ev.x!, ev.z!, 1.0, 12, 0x9ce85a, 0.6, 0.9);
+          this.flashes.flash(ev.x!, 2.4, ev.z!, 0x9ce85a, 70, 0.35);
           break;
         }
         case 'midbossAbility': {
@@ -933,11 +990,16 @@ export class GameView {
         case 'midbossAbilityHit': {
           this.camera.punch(0.6);
           this.sparks.burst(ev.x!, 0.4, ev.z!, {
-            count: 30, color: 0x9ce85a, speed: [6, 18], size: [0.6, 1.6], life: [0.25, 0.55], grow: 1.6, drag: 2.4,
+            count: 30, color: 0xd8ff9a, color2: 0x3f6a18, speed: [6, 18], size: [0.6, 1.6],
+            life: [0.25, 0.55], grow: 1.6, drag: 2.4, stretch: 2.2,
           });
           this.smoke.burst(ev.x!, 0.4, ev.z!, {
-            count: 10, color: 0x4a6a2c, speed: [2, 6], size: [1.0, 2.0], life: [0.4, 0.8], grow: 2.4, drag: 2, lift: 1.2,
+            count: 10, color: 0x5f8438, color2: 0x24301a, speed: [2, 6], size: [1.0, 2.0],
+            life: [0.4, 0.8], grow: 2.4, drag: 2, lift: 1.2, fadeIn: 0.2,
           });
+          this.waves.spawn(ev.x!, ev.z!, 0.8, (ev.radius ?? 5.0) * 2.2, 0x9ce85a, 0.5, 1.2);
+          this.flashes.flash(ev.x!, 1.5, ev.z!, 0x9ce85a, 110, 0.28);
+          this.decals.add('ichor', ev.x!, ev.z!, (ev.radius ?? 5.0) * 1.4, 0.7);
           break;
         }
         default:
