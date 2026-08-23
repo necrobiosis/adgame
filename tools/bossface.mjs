@@ -23,6 +23,10 @@ for (let i = 0; i < 400; i++) {
 await page.evaluate(() => window.__game.inspect('boss', 9, 1.5, Math.PI + 0.1));
 await page.waitForTimeout(600);
 await page.screenshot({ path: `${SHOTS}/face-boss2.png`, timeout: 120000 });
+// 头部特写：cy 已经是眼睛高度，只拉近距离，不要再加高度偏移
+await page.evaluate(() => window.__game.inspect('boss', 4, 0.3, Math.PI + 0.05));
+await page.waitForTimeout(500);
+await page.screenshot({ path: `${SHOTS}/face-boss-head.png`, timeout: 120000 });
 console.log('debug', JSON.stringify(await page.evaluate(() => window.__game.debug())));
 console.log('ERRORS', errs);
 await browser.close();
