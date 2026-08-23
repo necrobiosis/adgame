@@ -49,7 +49,8 @@ export interface HumanoidSpec {
   reach: number;
   helmet?: boolean;
   backpack?: boolean;
-  gun?: boolean;
+  /** 士兵武器外观：0 手枪 / 1 冲锋枪 / 2 突击步枪 / 3 轻机枪 / 4 加特林 / 5 等离子枪。 */
+  weaponTier?: number;
   horns?: boolean;
   claws?: boolean;
   spikes?: boolean;
@@ -415,25 +416,92 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
     }), p.cloth, [BONE.CHEST]);
   }
 
-  if (spec.gun) {
-    // 步枪挂在右前臂上，跟着手一起摆
+  if (spec.weaponTier !== undefined) {
+    // 武器挂在右前臂上，跟着手一起摆。机匣是所有等级共用的基座，
+    // 六个等级的差异全部体现在枪管/弹匣/枪托这些看一眼就能分的部件上——
+    // 而不是只换曳光弹颜色。
     const wrist = skel[BONE.FORE_R]!.tail;
     const gx = wrist.x - H * 0.012;
     const gy = wrist.y - H * 0.01;
     const gz = wrist.z + H * 0.02;
-    // 机匣
-    add(place(accBox(H * 0.028, H * 0.045, H * 0.16, H * 0.008), { x: gx, y: gy, z: gz + H * 0.03 }), 0x2b2f36, [BONE.FORE_R]);
-    // 枪管 + 消焰器（车削件，有明确的口径变化）
-    add(place(lathe([
-      [H * 0.011, 0], [H * 0.011, H * 0.11], [H * 0.008, H * 0.115],
-      [H * 0.008, H * 0.17], [H * 0.014, H * 0.175], [H * 0.013, H * 0.2], [0.0005, H * 0.202],
-    ], 8), { x: gx, y: gy + H * 0.012, z: gz + H * 0.11, rx: Math.PI / 2 }), 0x3a4049, [BONE.FORE_R]);
-    // 弹匣
-    add(place(chamferBox(H * 0.016, H * 0.07, H * 0.03, H * 0.006), { x: gx, y: gy - H * 0.05, z: gz + H * 0.01, rx: 0.22 }), 0x2b2f36, [BONE.FORE_R]);
-    // 枪托
-    add(place(accBox(H * 0.024, H * 0.05, H * 0.09, H * 0.012), { x: gx, y: gy - H * 0.004, z: gz - H * 0.075 }), 0x353a42, [BONE.FORE_R]);
-    // 瞄具
-    if (minor) add(place(chamferBox(H * 0.014, H * 0.018, H * 0.05, H * 0.005), { x: gx, y: gy + H * 0.032, z: gz + H * 0.02 }), 0x22262c, [BONE.FORE_R]);
+    const tier = spec.weaponTier;
+    add(place(accBox(H * 0.026, H * 0.04, H * 0.13, H * 0.007), { x: gx, y: gy, z: gz + H * 0.02 }), 0x2b2f36, [BONE.FORE_R]);
+    const addStock = () => add(place(accBox(H * 0.024, H * 0.05, H * 0.09, H * 0.012), {
+      x: gx, y: gy - H * 0.004, z: gz - H * 0.075,
+    }), 0x353a42, [BONE.FORE_R]);
+    const addSight = () => {
+      if (minor) add(place(chamferBox(H * 0.014, H * 0.018, H * 0.05, H * 0.005), {
+        x: gx, y: gy + H * 0.032, z: gz + H * 0.02,
+      }), 0x22262c, [BONE.FORE_R]);
+    };
+
+    if (tier === 0) {
+      // 手枪：短小一截，没有枪托
+      add(place(lathe([
+        [H * 0.009, 0], [H * 0.009, H * 0.05], [H * 0.006, H * 0.052], [0.0004, H * 0.062],
+      ], 8), { x: gx, y: gy + H * 0.008, z: gz + H * 0.09, rx: Math.PI / 2 }), 0x3a4049, [BONE.FORE_R]);
+      add(place(chamferBox(H * 0.014, H * 0.05, H * 0.022, H * 0.005), { x: gx, y: gy - H * 0.03, z: gz + H * 0.03, rx: 0.3 }), 0x2b2f36, [BONE.FORE_R]);
+    } else if (tier === 1) {
+      // 冲锋枪：短枪管 + 一根斜出去的折叠托
+      add(place(lathe([
+        [H * 0.01, 0], [H * 0.01, H * 0.07], [H * 0.007, H * 0.073], [0.0004, H * 0.09],
+      ], 8), { x: gx, y: gy + H * 0.01, z: gz + H * 0.1, rx: Math.PI / 2 }), 0x3a4049, [BONE.FORE_R]);
+      add(place(chamferBox(H * 0.015, H * 0.06, H * 0.026, H * 0.006), { x: gx, y: gy - H * 0.04, z: gz + H * 0.01, rx: 0.22 }), 0x2b2f36, [BONE.FORE_R]);
+      add(place(pipe([
+        new THREE.Vector3(gx, gy, gz - H * 0.02),
+        new THREE.Vector3(gx, gy - H * 0.022, gz - H * 0.058),
+      ], H * 0.006, 5), {}), 0x353a42, [BONE.FORE_R]);
+    } else if (tier === 3) {
+      // 轻机枪：加长枪管 + 弹鼓 + 两脚架
+      add(place(lathe([
+        [H * 0.012, 0], [H * 0.012, H * 0.15], [H * 0.009, H * 0.155],
+        [H * 0.009, H * 0.21], [H * 0.014, H * 0.215], [0.0005, H * 0.225],
+      ], 8), { x: gx, y: gy + H * 0.012, z: gz + H * 0.13, rx: Math.PI / 2 }), 0x3a4049, [BONE.FORE_R]);
+      add(place(lathe([
+        [0.0005, 0], [H * 0.032, H * 0.006], [H * 0.032, H * 0.05], [0.0005, H * 0.056],
+      ], 10), { x: gx, y: gy - H * 0.05, z: gz + H * 0.01, rz: Math.PI / 2 }), 0x2b2f36, [BONE.FORE_R]);
+      addStock();
+      addSight();
+      if (minor) for (const sx of [-1, 1] as const) {
+        add(place(pipe([
+          new THREE.Vector3(gx, gy - H * 0.01, gz + H * 0.19),
+          new THREE.Vector3(gx + sx * H * 0.03, gy - H * 0.05, gz + H * 0.21),
+        ], H * 0.004, 4), {}), 0x22262c, [BONE.FORE_R]);
+      }
+    } else if (tier === 4) {
+      // 加特林：旋转枪管簇——一眼就能认出和其它枪不是一类东西
+      const n = 4;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const ox = Math.cos(a) * H * 0.015;
+        const oy = Math.sin(a) * H * 0.015;
+        add(place(lathe([[H * 0.005, 0], [H * 0.005, H * 0.16], [0.0003, H * 0.165]], 6), {
+          x: gx + ox, y: gy + oy + H * 0.01, z: gz + H * 0.12, rx: Math.PI / 2,
+        }), 0x3a4049, [BONE.FORE_R]);
+      }
+      add(place(lathe([[H * 0.02, 0], [H * 0.02, H * 0.04], [H * 0.016, H * 0.045]], 8), {
+        x: gx, y: gy + H * 0.01, z: gz + H * 0.02, rx: Math.PI / 2,
+      }), 0x2b2f36, [BONE.FORE_R]);
+      addStock();
+      addSight();
+    } else if (tier === 5) {
+      // 等离子枪：能量管涂成和曳光弹一样的青色，不发光也读得出"这把在充能"
+      add(place(lathe([
+        [H * 0.013, 0], [H * 0.013, H * 0.12], [H * 0.017, H * 0.125], [H * 0.017, H * 0.17], [0.0005, H * 0.178],
+      ], 8), { x: gx, y: gy + H * 0.012, z: gz + H * 0.11, rx: Math.PI / 2 }), 0x66e0ff, [BONE.FORE_R]);
+      add(place(chamferBox(H * 0.02, H * 0.06, H * 0.03, H * 0.007), { x: gx, y: gy - H * 0.045, z: gz + H * 0.01, rx: 0.15 }), 0x2b2f36, [BONE.FORE_R]);
+      addStock();
+      addSight();
+    } else {
+      // tier 2（突击步枪）——原来唯一的那把枪，现在是居中的默认档
+      add(place(lathe([
+        [H * 0.011, 0], [H * 0.011, H * 0.11], [H * 0.008, H * 0.115],
+        [H * 0.008, H * 0.17], [H * 0.014, H * 0.175], [H * 0.013, H * 0.2], [0.0005, H * 0.202],
+      ], 8), { x: gx, y: gy + H * 0.012, z: gz + H * 0.11, rx: Math.PI / 2 }), 0x3a4049, [BONE.FORE_R]);
+      add(place(chamferBox(H * 0.016, H * 0.07, H * 0.03, H * 0.006), { x: gx, y: gy - H * 0.05, z: gz + H * 0.01, rx: 0.22 }), 0x2b2f36, [BONE.FORE_R]);
+      addStock();
+      addSight();
+    }
   }
 
   if (spec.horns) {
@@ -566,9 +634,9 @@ export function bossGeometry(q: BuildQuality): THREE.BufferGeometry {
   }, q);
 }
 
-export function soldierGeometry(q: BuildQuality): THREE.BufferGeometry {
+export function soldierGeometry(q: BuildQuality, weaponTier: number): THREE.BufferGeometry {
   return buildHumanoid({
-    height: 1.8, build: 1.02, hunch: 0.06, reach: -0.28, helmet: true, backpack: true, gun: true,
+    height: 1.8, build: 1.02, hunch: 0.06, reach: -0.28, helmet: true, backpack: true, weaponTier,
     eyes: 'soldier', mouth: 'closed', seed: 5,
     palette: { skin: 0xd9a684, cloth: 0x2f4d8f, dark: 0x1d2f5c, accent: 0x24407a, bone: 0xf0e6d8 },
   }, q);

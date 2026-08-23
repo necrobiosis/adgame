@@ -99,6 +99,9 @@ export class GameView {
   private readonly batches = new Map<EnemyKind, CrowdBatch>();
   private readonly tints = new Map<EnemyKind, THREE.Color>();
   private soldiers!: CrowdBatch;
+  private soldierMatSet!: CrowdMaterialSet;
+  /** 当前士兵批次是照哪个武器等级建的模——和 world.squad.weaponLevel 对不上时触发重建。 */
+  private soldierWeaponTier = 0;
   /** 每帧重建的"最近 N 个敌人"缓冲。 */
   private readonly visible: Enemy[] = [];
   /** syncSquad() 每帧重建的候选士兵缓冲，避免每帧新分配数组。 */
@@ -202,13 +205,35 @@ export class GameView {
       this.tints.set(kind, new THREE.Color(ENEMY_STATS[kind].tint));
     }
 
-    const soldierGeo = soldierGeometry(q);
+    this.buildSoldierBatch(q);
+  }
+
+  /**
+   * 士兵批次单独拆出来建——武器等级是全队共用的一个值，升级是稀疏的门
+   * 事件（不是每帧都变），所以不维护六个等级并存的批次，而是像换画质档
+   * 一样整批重建，只是这次只重建士兵这一个批次。
+   */
+  private buildSoldierBatch(q: BuildQuality): void {
+    const soldierGeo = soldierGeometry(q, this.soldierWeaponTier);
     const soldierMat = createCrowdMaterial({ roughness: 0.74, metalness: 0.1 });
     soldierMat.setPivots(geometryPivots(soldierGeo));
-    this.matSets.push(soldierMat);
+    this.soldierMatSet = soldierMat;
     this.soldiers = new CrowdBatch(soldierGeo, soldierMat.material, MAX_RENDERED_SOLDIERS, soldierMat.depthMaterial);
     this.soldiers.setCastShadow(this.r.quality.shadowMap > 0);
     this.scene.add(this.soldiers.mesh);
+  }
+
+  /** 武器等级变化（门事件触发）时只重建士兵批次，不动其它任何东西。 */
+  private rebuildSoldiers(tier: number): void {
+    this.soldierWeaponTier = tier;
+    this.scene.remove(this.soldiers.mesh);
+    this.soldiers.dispose();
+    const q: BuildQuality = {
+      radialSegments: this.r.quality.radialSegments,
+      lengthDetail: this.r.quality.lengthDetail,
+      accessory: this.r.quality.accessory,
+    };
+    this.buildSoldierBatch(q);
   }
 
   private buildProps(): void {
@@ -352,6 +377,9 @@ export class GameView {
     this.time += dt;
     this.floats.length = 0;
     for (const m of this.matSets) m.setTime(this.time);
+    this.soldierMatSet.setTime(this.time);
+
+    if (world.squad.weaponLevel !== this.soldierWeaponTier) this.rebuildSoldiers(world.squad.weaponLevel);
 
     this.syncEnemies(world);
     this.syncSquad(world);
