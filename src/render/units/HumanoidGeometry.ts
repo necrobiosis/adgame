@@ -425,13 +425,17 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
     const gy = wrist.y - H * 0.01;
     const gz = wrist.z + H * 0.02;
     const tier = spec.weaponTier;
-    add(place(accBox(H * 0.026, H * 0.04, H * 0.13, H * 0.007), { x: gx, y: gy, z: gz + H * 0.02 }), 0x2b2f36, [BONE.FORE_R]);
-    const addStock = () => add(place(accBox(H * 0.024, H * 0.05, H * 0.09, H * 0.012), {
+    // 机匣随等级变粗：越往上枪越是"扛"着而不是"端"着
+    const bulk = 1 + tier * 0.22;
+    add(place(accBox(H * 0.026 * bulk, H * 0.04 * bulk, H * 0.13 * bulk, H * 0.007), {
+      x: gx, y: gy, z: gz + H * 0.02,
+    }), 0x2b2f36, [BONE.FORE_R]);
+    const addStock = () => add(place(accBox(H * 0.024 * bulk, H * 0.05 * bulk, H * 0.09, H * 0.012), {
       x: gx, y: gy - H * 0.004, z: gz - H * 0.075,
     }), 0x353a42, [BONE.FORE_R]);
     const addSight = () => {
-      if (minor) add(place(chamferBox(H * 0.014, H * 0.018, H * 0.05, H * 0.005), {
-        x: gx, y: gy + H * 0.032, z: gz + H * 0.02,
+      if (minor) add(place(chamferBox(H * 0.014, H * 0.018 * bulk, H * 0.05, H * 0.005), {
+        x: gx, y: gy + H * 0.032 * bulk, z: gz + H * 0.02,
       }), 0x22262c, [BONE.FORE_R]);
     };
 
@@ -452,48 +456,90 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
         new THREE.Vector3(gx, gy - H * 0.022, gz - H * 0.058),
       ], H * 0.006, 5), {}), 0x353a42, [BONE.FORE_R]);
     } else if (tier === 3) {
-      // 轻机枪：加长枪管 + 弹鼓 + 两脚架
+      // 轻机枪：加长枪管 + 大弹鼓 + 提把 + 两脚架，明显比步枪"重"了一档
       add(place(lathe([
-        [H * 0.012, 0], [H * 0.012, H * 0.15], [H * 0.009, H * 0.155],
-        [H * 0.009, H * 0.21], [H * 0.014, H * 0.215], [0.0005, H * 0.225],
-      ], 8), { x: gx, y: gy + H * 0.012, z: gz + H * 0.13, rx: Math.PI / 2 }), 0x3a4049, [BONE.FORE_R]);
+        [H * 0.015, 0], [H * 0.015, H * 0.19], [H * 0.011, H * 0.196],
+        [H * 0.011, H * 0.26], [H * 0.019, H * 0.268], [0.0005, H * 0.28],
+      ], 9), { x: gx, y: gy + H * 0.012, z: gz + H * 0.13, rx: Math.PI / 2 }), 0x3a4049, [BONE.FORE_R]);
+      // 弹鼓
       add(place(lathe([
-        [0.0005, 0], [H * 0.032, H * 0.006], [H * 0.032, H * 0.05], [0.0005, H * 0.056],
-      ], 10), { x: gx, y: gy - H * 0.05, z: gz + H * 0.01, rz: Math.PI / 2 }), 0x2b2f36, [BONE.FORE_R]);
+        [0.0005, 0], [H * 0.046, H * 0.008], [H * 0.046, H * 0.062], [0.0005, H * 0.07],
+      ], 12), { x: gx, y: gy - H * 0.058, z: gz + H * 0.01, rz: Math.PI / 2 }), 0x2b2f36, [BONE.FORE_R]);
+      // 提把
+      if (minor) add(place(pipe([
+        new THREE.Vector3(gx, gy + H * 0.042, gz + H * 0.02),
+        new THREE.Vector3(gx, gy + H * 0.056, gz + H * 0.06),
+        new THREE.Vector3(gx, gy + H * 0.042, gz + H * 0.1),
+      ], H * 0.006, 5), {}), 0x22262c, [BONE.FORE_R]);
       addStock();
       addSight();
       if (minor) for (const sx of [-1, 1] as const) {
         add(place(pipe([
-          new THREE.Vector3(gx, gy - H * 0.01, gz + H * 0.19),
-          new THREE.Vector3(gx + sx * H * 0.03, gy - H * 0.05, gz + H * 0.21),
-        ], H * 0.004, 4), {}), 0x22262c, [BONE.FORE_R]);
+          new THREE.Vector3(gx, gy - H * 0.01, gz + H * 0.24),
+          new THREE.Vector3(gx + sx * H * 0.04, gy - H * 0.07, gz + H * 0.27),
+        ], H * 0.005, 4), {}), 0x22262c, [BONE.FORE_R]);
       }
     } else if (tier === 4) {
-      // 加特林：旋转枪管簇——一眼就能认出和其它枪不是一类东西
-      const n = 4;
+      // 加特林：六根枪管 + 旋转机头 + 背后的弹箱和供弹带。
+      // 到这一档，枪的体积已经接近半个人——一眼就知道升级到位了。
+      const n = 6;
+      const R = H * 0.026;
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2;
-        const ox = Math.cos(a) * H * 0.015;
-        const oy = Math.sin(a) * H * 0.015;
-        add(place(lathe([[H * 0.005, 0], [H * 0.005, H * 0.16], [0.0003, H * 0.165]], 6), {
-          x: gx + ox, y: gy + oy + H * 0.01, z: gz + H * 0.12, rx: Math.PI / 2,
+        add(place(lathe([[H * 0.006, 0], [H * 0.006, H * 0.26], [0.0003, H * 0.268]], 6), {
+          x: gx + Math.cos(a) * R, y: gy + Math.sin(a) * R + H * 0.012, z: gz + H * 0.12, rx: Math.PI / 2,
         }), 0x3a4049, [BONE.FORE_R]);
       }
-      add(place(lathe([[H * 0.02, 0], [H * 0.02, H * 0.04], [H * 0.016, H * 0.045]], 8), {
-        x: gx, y: gy + H * 0.01, z: gz + H * 0.02, rx: Math.PI / 2,
+      // 枪管束前后的固定盘
+      for (const zz of [H * 0.12, H * 0.34]) {
+        add(place(lathe([[0.0005, 0], [R * 1.25, 0], [R * 1.25, H * 0.014], [0.0005, H * 0.014]], 12), {
+          x: gx, y: gy + H * 0.012, z: gz + zz, rx: Math.PI / 2,
+        }), 0x22262c, [BONE.FORE_R]);
+      }
+      // 旋转机头
+      add(place(lathe([[H * 0.034, 0], [H * 0.034, H * 0.07], [H * 0.026, H * 0.078]], 10), {
+        x: gx, y: gy + H * 0.012, z: gz + H * 0.03, rx: Math.PI / 2,
       }), 0x2b2f36, [BONE.FORE_R]);
+      // 弹箱 + 供弹带
+      add(place(accBox(H * 0.05, H * 0.058, H * 0.07, H * 0.008), {
+        x: gx - H * 0.05, y: gy - H * 0.03, z: gz - H * 0.02,
+      }), 0x353a42, [BONE.FORE_R]);
+      if (minor) add(place(pipe([
+        new THREE.Vector3(gx - H * 0.04, gy - H * 0.012, gz + H * 0.0),
+        new THREE.Vector3(gx - H * 0.02, gy - H * 0.004, gz + H * 0.02),
+        new THREE.Vector3(gx, gy + H * 0.004, gz + H * 0.03),
+      ], H * 0.008, 5), {}), 0x8a6a2a, [BONE.FORE_R]);
       addStock();
-      addSight();
     } else if (tier === 5) {
-      // 等离子枪：能量管涂成和曳光弹一样的青色，不发光也读得出"这把在充能"
+      // 等离子炮：整把枪已经不像枪了——粗大的能量管、三圈线圈、
+      // 尾部的能量核心、喇叭口的炮口。终极武器就该夸张到离谱。
       add(place(lathe([
-        [H * 0.013, 0], [H * 0.013, H * 0.12], [H * 0.017, H * 0.125], [H * 0.017, H * 0.17], [0.0005, H * 0.178],
-      ], 8), { x: gx, y: gy + H * 0.012, z: gz + H * 0.11, rx: Math.PI / 2 }), 0x66e0ff, [BONE.FORE_R]);
-      add(place(chamferBox(H * 0.02, H * 0.06, H * 0.03, H * 0.007), { x: gx, y: gy - H * 0.045, z: gz + H * 0.01, rx: 0.15 }), 0x2b2f36, [BONE.FORE_R]);
+        [H * 0.022, 0], [H * 0.022, H * 0.2], [H * 0.03, H * 0.21],
+        [H * 0.024, H * 0.24], [H * 0.05, H * 0.3], [H * 0.046, H * 0.32], [0.0006, H * 0.328],
+      ], 10), { x: gx, y: gy + H * 0.014, z: gz + H * 0.1, rx: Math.PI / 2 }), 0x66e0ff, [BONE.FORE_R]);
+      // 线圈：三圈，越往前越大
+      for (let i = 0; i < 3; i++) {
+        const zz = H * (0.14 + i * 0.07);
+        const rr = H * (0.03 + i * 0.005);
+        add(place(lathe([[rr, 0], [rr * 1.28, H * 0.006], [rr * 1.28, H * 0.02], [rr, H * 0.026]], 10), {
+          x: gx, y: gy + H * 0.014, z: gz + zz, rx: Math.PI / 2,
+        }), 0x2b2f36, [BONE.FORE_R]);
+      }
+      // 尾部能量核心
+      add(place(lathe([
+        [0.0005, 0], [H * 0.036, H * 0.012], [H * 0.04, H * 0.045], [H * 0.03, H * 0.07], [0.0005, H * 0.078],
+      ], 10), { x: gx, y: gy + H * 0.006, z: gz - H * 0.05, rx: Math.PI / 2 }), 0x66e0ff, [BONE.FORE_R]);
+      // 散热片
+      if (minor) for (const sx of [-1, 1] as const) {
+        add(place(chamferBox(H * 0.008, H * 0.05, H * 0.09, H * 0.004), {
+          x: gx + sx * H * 0.03, y: gy + H * 0.03, z: gz + H * 0.06, rz: sx * 0.2,
+        }), 0x22262c, [BONE.FORE_R]);
+      }
+      add(place(chamferBox(H * 0.024, H * 0.075, H * 0.034, H * 0.008), { x: gx, y: gy - H * 0.055, z: gz + H * 0.01, rx: 0.15 }), 0x2b2f36, [BONE.FORE_R]);
       addStock();
       addSight();
     } else {
-      // tier 2（突击步枪）——原来唯一的那把枪，现在是居中的默认档
+      // tier 2（突击步枪）——居中的默认档
       add(place(lathe([
         [H * 0.011, 0], [H * 0.011, H * 0.11], [H * 0.008, H * 0.115],
         [H * 0.008, H * 0.17], [H * 0.014, H * 0.175], [H * 0.013, H * 0.2], [0.0005, H * 0.202],

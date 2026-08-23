@@ -18,11 +18,11 @@ await page.waitForTimeout(500);
 
 // upgrades.weapon 上限只到 3（轻机枪），5 级等离子枪只能靠关内拾取——
 // 直接改模拟层字段来强制切等级，纯粹是渲染层验证用，不代表真实数值路径
-for (const tier of [0, 2, 5]) {
+for (const tier of [0, 1, 2, 3, 4, 5]) {
   await page.evaluate((t) => { window.__game.world.squad.weaponLevel = t; }, tier);
   await page.evaluate(() => window.__game.fastForward(0.4));
   const actualTier = await page.evaluate(() => window.__game.world?.squad?.weaponLevel);
-  await page.evaluate(() => window.__game.inspect('squad', 1.0, 0.35, 0.25));
+  await page.evaluate(() => window.__game.inspect('squad', 2.2, 1.15, 1.5));
   await page.waitForTimeout(500);
   console.log('tier', tier, 'actual', actualTier);
   await page.screenshot({ path: `${SHOTS}/weapon-tier${tier}.png`, timeout: 120000 });
