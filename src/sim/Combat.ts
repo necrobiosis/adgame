@@ -20,6 +20,7 @@ export class Combat {
     squad: Squad,
     pool: EnemyPool,
     block: BlockObstacle | null,
+    ramming: boolean,
     out: SimEvent[],
   ): number {
     let goldEarned = 0;
@@ -40,7 +41,7 @@ export class Combat {
       block.alive &&
       block.z > squad.z - 2 &&
       block.z - squad.z < Math.min(weapon.range, BLOCK.engageRange) &&
-      obstructs(block, squad);
+      obstructs(block, squad, ramming);
 
     // 有威胁逼近时留一部分火力回防
     let closeThreats = 0;
@@ -117,7 +118,7 @@ export class Combat {
       });
     }
 
-    goldEarned += this.updateShells(dt, pool, block, out);
+    goldEarned += this.updateShells(dt, pool, blockTargetable ? block : null, out);
     return goldEarned;
   }
 
@@ -195,8 +196,17 @@ export function rankFireMul(row: number): number {
   return Math.max(RANK_FIRE.floor, Math.pow(RANK_FIRE.falloff, row - RANK_FIRE.freeRows));
 }
 
-function obstructs(block: BlockObstacle, squad: Squad): boolean {
+/**
+ * 这堵墙现在该不该挨打。
+ *
+ * 全宽方块挡死了去路，没得选，一定打。
+ * 半宽墙则**只有玩家主动顶上去**才打——否则方阵光是从旁边擦过去就能把墙
+ * 拆了，"打穿拿奖励 / 绕过去"就不是选择，而是"顺路白拿"。绕开就意味着
+ * 真的放弃这份奖励，这才让那个决定有分量。
+ */
+function obstructs(block: BlockObstacle, squad: Squad, ramming: boolean): boolean {
   if (block.span === 'full') return true;
+  if (!ramming) return false;
   return squad.x + squad.halfWidth > block.x0 && squad.x - squad.halfWidth < block.x1;
 }
 

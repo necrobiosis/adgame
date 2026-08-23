@@ -1,5 +1,8 @@
 import type { GateSpec } from '../config/levels';
-import type { Squad } from './Squad';
+import { Squad } from './Squad';
+
+/** 兵力溢出时，每个装不下的兵折多少金币。 */
+const OVERFLOW_GOLD = 3;
 
 export interface GateVisual {
   /** 门墙上重复堆叠的短字形（还原广告里那面 "+1" / "+99" 流动数字墙）。 */
@@ -45,13 +48,18 @@ export interface GateResult {
 /** 把门的效果作用到方阵上。 */
 export function applyGate(squad: Squad, g: GateSpec): GateResult {
   switch (g.type) {
+    // 加兵类的门撞到 400 人上限时，把吃掉的那部分折成金币退回来。
+    // 否则后期的 "+190" / "×3" 经常等于白拿——门还在，但已经不起作用了。
     case 'add': {
       const n = squad.addSoldiers(g.value);
-      return { text: `+${n} 士兵`, gold: 0 };
+      const over = Squad.overflowOf(g.value, n);
+      const gold = over * OVERFLOW_GOLD;
+      return { text: over > 0 ? `+${n} 士兵 (满编 +${gold})` : `+${n} 士兵`, gold };
     }
     case 'mul': {
-      const n = squad.multiplySoldiers(g.value);
-      return { text: `×${g.value}  (+${n})`, gold: 0 };
+      const [n, wanted] = squad.multiplySoldiers(g.value);
+      const gold = Math.max(0, wanted - n) * OVERFLOW_GOLD;
+      return { text: gold > 0 ? `×${g.value} (+${n}, 满编 +${gold})` : `×${g.value}  (+${n})`, gold };
     }
     case 'sub': {
       const n = squad.removeSoldiers(g.value);

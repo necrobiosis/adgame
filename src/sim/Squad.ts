@@ -93,12 +93,22 @@ export class Squad {
 
   // ── 编制变更 ────────────────────────────────────────────────
 
+  /**
+   * 加兵。返回实际加进来的人数。
+   * 撞到 MAX_SOLDIERS 上限时多出来的那部分由调用方折算成金币退回去
+   * （见 overflowOf），后期的 "×3" / "+190" 才不会变成白拿的空门。
+   */
   addSoldiers(n: number): number {
     const room = MAX_SOLDIERS - this.aliveCount;
     const add = Math.max(0, Math.min(Math.floor(n), room));
     for (let i = 0; i < add; i++) this.units.push(this.makeUnit(false));
     if (add > 0) this.dirty = true;
     return add;
+  }
+
+  /** 想加 want 人、实际只加进 got 人时，被上限吃掉的溢出量。 */
+  static overflowOf(want: number, got: number): number {
+    return Math.max(0, Math.floor(want) - got);
   }
 
   addCannons(n: number): number {
@@ -148,10 +158,11 @@ export class Squad {
     return removed;
   }
 
-  multiplySoldiers(k: number): number {
+  /** 乘法门。返回 [实际加进来的人数, 想加的人数]，差额由调用方折金。 */
+  multiplySoldiers(k: number): [added: number, wanted: number] {
     const before = this.soldierCount;
-    const target = Math.min(MAX_SOLDIERS, Math.floor(before * k));
-    return this.addSoldiers(target - before);
+    const wanted = Math.max(0, Math.floor(before * k) - before);
+    return [this.addSoldiers(wanted), wanted];
   }
 
   divideSoldiers(k: number): number {

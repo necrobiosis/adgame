@@ -70,6 +70,15 @@ export class World {
   /** 玩家横向输入意图 [-1, 1]。 */
   steer = 0;
 
+  /**
+   * 这一帧玩家是否主动顶在半宽墙上要打穿它。
+   * 渲染层/战斗层都要看它：撞墙时方阵停下来啃，不撞就自动绕开。
+   */
+  ramming = false;
+  /** 当前正在啃的那堵半宽墙，以及已经啃了多久（用于超时放弃）。 */
+  private ramBlockId = -1;
+  private ramTime = 0;
+
   private readonly rng: Rng;
   private readonly events: SimEvent[] = [];
   private pendingWaves: { wave: WaveSpec; z: number }[] = [];
@@ -113,7 +122,7 @@ export class World {
             const side = this.rng.next() < 0.5 ? -1 : 1;
             this.pickups.push({
               id: this.nextId++,
-              x: side * this.rng.range(2.5, ROAD_HALF - 1.5),
+              x: side * this.rng.range(5.6, ROAD_HALF - 0.8),
               z: z + localZ,
               amount: Math.round(this.rng.range(GOLD_PICKUP.amountMin, GOLD_PICKUP.amountMax)),
               alive: true,
@@ -212,13 +221,35 @@ export class World {
     const margin = Math.min(ROAD_HALF - 0.6, this.squad.halfWidth + 0.4);
     let x = this.squad.x + this.steer * STRAFE_SPEED * dt;
     x = clamp(x, -(ROAD_HALF - margin), ROAD_HALF - margin);
-    // 半宽方块把方阵挤到另一侧
+    // 半宽方块：玩家自己不往墙上顶就自动让开，主动顶上去就啃它。
+    //
+    // 以前这里是**无条件**把方阵推到另一侧的，于是"打穿高墙拿奖励 / 也可以
+    // 绕过去"根本不是选择——绕开是强制的，打穿只是接近过程中 DPS 恰好够不够
+    // 的被动结果。现在由玩家的操舵意图决定：顶上去就停下来啃，代价是这段时间
+    // 尸潮持续逼近、接触数上涨、推进阻力变大，时间本身就是成本。
     const blk = this.activeBlock;
-    if (blk && blk.span !== 'full' && Math.abs(blk.z - this.squad.z) < 7) {
-      // 按方块实际占住的世界 x 区间来挤，不要依赖 left/right 这个屏幕侧的标签
+    this.ramming = false;
+    if (blk && blk.alive && blk.span !== 'full' && Math.abs(blk.z - this.squad.z) < 7) {
       const gap = this.squad.halfWidth * 0.7 + 0.6;
-      if (blk.x0 <= -ROAD_HALF + 0.01) x = Math.max(x, blk.x1 + gap);
-      else x = Math.min(x, blk.x0 - gap);
+      const wallOnMinusX = blk.x0 <= -ROAD_HALF + 0.01;
+      // 玩家正在往墙的方向推杆 = 主动选择撞穿
+      if (blk.id !== this.ramBlockId) {
+        this.ramBlockId = blk.id;
+        this.ramTime = 0;
+      }
+      const gaveUp = this.ramTime >= BLOCK.ramTimeout;
+      const intent = !gaveUp && (wallOnMinusX ? this.steer < -0.15 : this.steer > 0.15);
+      if (intent) {
+        this.ramTime += dt;
+        this.ramming = true;
+        // 顶到墙面前贴住，不穿模
+        x = wallOnMinusX
+          ? Math.max(x, blk.x1 - this.squad.halfWidth * 0.5)
+          : Math.min(x, blk.x0 + this.squad.halfWidth * 0.5);
+      } else {
+        if (wallOnMinusX) x = Math.max(x, blk.x1 + gap);
+        else x = Math.min(x, blk.x0 - gap);
+      }
       x = clamp(x, -(ROAD_HALF - margin), ROAD_HALF - margin);
     }
     this.squad.x = x;
@@ -226,6 +257,8 @@ export class World {
     // ── 前进 ────────────────────────────────────────────────
     let canAdvance = true;
     if (blk && blk.span === 'full' && this.squad.z >= blk.z - BLOCK_STOP_GAP) canAdvance = false;
+    // 主动撞墙时和全宽方块一样停下来啃
+    if (this.ramming && blk && this.squad.z >= blk.z - BLOCK_STOP_GAP) canAdvance = false;
     if (this.bossTriggered && this.squad.z >= this.bossArenaTargetZ) canAdvance = false;
     if (canAdvance) {
       // 压在接触面上的僵尸会把方阵顶住 —— 尸潮本身就是一堵会推回来的墙
@@ -261,7 +294,7 @@ export class World {
     // ── 战斗 ────────────────────────────────────────────────
     this.boss.update(dt, this.squad, this.enemies, out);
     this.midBoss.update(dt, this.squad, out);
-    const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, out);
+    const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, this.ramming, out);
     this.enemies.update(dt, this.squad, this.barrier, out);
 
     for (const ev of out) if (ev.type === 'kill') this.stats.kills++;
@@ -283,10 +316,24 @@ export class World {
     }
   }
 
-  /** 路边的金币堆不用打，方阵走到就自动收进口袋。 */
+  /**
+   * 路边的金币堆：方阵**开过去**才收得到，不是走到那条横线就自动入袋。
+   *
+   * 横向判定是这套东西的意义所在——金币撒在两侧，去捡就得离开当前车道，
+   * 于是"要不要为这堆钱冒险"变成一个真的选择，而不是白送。
+   * 已经错过（方阵尾巴都开过去了）的就直接作废，不会一直挂着。
+   */
   private collectPickups(out: SimEvent[]): void {
+    const reach = Math.min(this.squad.halfWidth, GOLD_PICKUP.bodyReachCap) + GOLD_PICKUP.reach;
     for (const p of this.pickups) {
-      if (!p.alive || this.squad.z < p.z) continue;
+      if (!p.alive) continue;
+      if (this.squad.z < p.z) continue;
+      // 已经开过头的：错过了就是错过了
+      if (this.squad.z - p.z > this.squad.depth + 2) {
+        p.alive = false;
+        continue;
+      }
+      if (Math.abs(p.x - this.squad.x) > reach) continue;
       p.alive = false;
       this.gold += p.amount;
       this.stats.goldEarned += p.amount;
