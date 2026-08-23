@@ -49,12 +49,16 @@ export class BlockMesh {
     this.numberTex = new THREE.CanvasTexture(canvas);
     this.numberTex.colorSpace = THREE.SRGBColorSpace;
 
-    const labelW = Math.min(w * 0.55, 5.4);
+    // 数字面片要比铭牌凹槽再往外挪一点。凹槽本身有 0.1 的厚度、中心就在
+    // -d/2-0.03，它的前表面比原来的 label 位置还靠近镜头 0.05——数字被自己
+    // 那块底板挡在后面，画布上明明画好了，屏幕上一个字都看不见。
+    const labelZ = block.z - d / 2 - 0.14;
+    const labelW = Math.min(w * 0.62, 6.2);
     const label = new THREE.Mesh(
       new THREE.PlaneGeometry(labelW, labelW / 2),
       new THREE.MeshBasicMaterial({ map: this.numberTex, transparent: true, depthWrite: false, toneMapped: false }),
     );
-    label.position.set(cx, h * 0.58, block.z - d / 2 - 0.03);
+    label.position.set(cx, h * 0.58, labelZ);
     label.rotation.y = Math.PI;
     label.renderOrder = 4;
     this.group.add(label);

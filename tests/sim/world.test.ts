@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { ENDLESS_ID } from '../../src/config/levels';
 import { World } from '../../src/sim/World';
-import type { UpgradeId } from '../../src/config/balance';
+import { BUFF_CAP, SOLDIER, type UpgradeId } from '../../src/config/balance';
 import { LANE_SIGN } from '../../src/sim/lanes';
 
 const NO_UPGRADES: Record<UpgradeId, number> = { squad: 0, damage: 0, fireRate: 0, cannon: 0, armor: 0, weapon: 0 };
@@ -121,5 +122,87 @@ describe('World', () => {
     const strong = run(maxed);
     expect(strong.progress).toBeGreaterThanOrEqual(weak.progress);
     expect(strong.stats.kills).toBeGreaterThan(weak.stats.kills);
+  });
+});
+
+describe('无尽模式', () => {
+  const kitted: Record<UpgradeId, number> = { squad: 10, damage: 8, fireRate: 6, cannon: 4, armor: 8, weapon: 2 };
+
+  it('开局不会被"Boss 触发"卡死（没有 boss beat，arenaZ 是 0）', () => {
+    const w = new World({ levelId: ENDLESS_ID, upgrades: kitted, seed: 5 });
+    const dt = 1 / 60;
+    for (let i = 0; i < 180; i++) {
+      w.steer = 0;
+      w.step(dt);
+      w.drainEvents();
+    }
+    expect(w.squad.z, '三秒过去方阵应当明显往前走了').toBeGreaterThan(10);
+    expect(w.progress, '进度条不应当一开局就是满的').toBeLessThan(1);
+  });
+
+  it('怪越往后越硬，而且没有上限', () => {
+    const w = new World({ levelId: ENDLESS_ID, upgrades: kitted, seed: 5 });
+    const scaleAt = (z: number) => {
+      w.squad.z = z;
+      // currentHpScale 是私有的，通过刷一波怪回读它的实际血量
+      w.enemies.clear();
+      w.enemies.hpScale = (w as unknown as { currentHpScale(): number }).currentHpScale();
+      return w.enemies.hpScale;
+    };
+    const a = scaleAt(200);
+    const b = scaleAt(1000);
+    const c = scaleAt(3000);
+    expect(b).toBeGreaterThan(a * 1.5);
+    expect(c).toBeGreaterThan(b * 1.5);
+  });
+
+  it('中 Boss 会反复出现（不是只刷最后一个）', () => {
+    const w = new World({ levelId: ENDLESS_ID, upgrades: kitted, seed: 5 });
+    const dt = 1 / 60;
+    let spawns = 0;
+    for (let i = 0; i < 240 / dt && w.phase === 'running'; i++) {
+      w.steer = 0;
+      w.step(dt);
+      for (const e of w.drainEvents()) if (e.type === 'midbossSpawn') spawns++;
+    }
+    expect(spawns, '无尽模式里中 Boss 应当一轮一轮反复出现').toBeGreaterThan(1);
+  });
+
+  it('乘算增益有天花板（否则无尽模式会把方阵堆成无敌）', () => {
+    // 护甲/射速门都是乘算的。战役一局只吃到三五个没问题，无尽模式有一百多个门，
+    // 乘下来单兵血量实测能到一千三百万——任何怪都打不动，"无尽"变成散步。
+    const w = new World({ levelId: ENDLESS_ID, upgrades: kitted, seed: 5 });
+    for (let i = 0; i < 200; i++) {
+      w.squad.addArmorPercent(60);
+      w.squad.addFireRatePercent(50);
+    }
+    expect(w.squad.unitMaxHp).toBeLessThan(SOLDIER.baseHp * BUFF_CAP.hpMul * 1.01);
+    expect(w.squad.fireRateMul).toBeLessThanOrEqual(BUFF_CAP.fireRateMul + 1e-6);
+  });
+
+  it('满配也会被无尽模式打死（怪确实越来越强）', () => {
+    const maxed: Record<UpgradeId, number> = { squad: 12, damage: 12, fireRate: 10, cannon: 6, armor: 10, weapon: 3 };
+    const w = new World({ levelId: ENDLESS_ID, upgrades: maxed, seed: 5 });
+    const dt = 1 / 60;
+    let t = 0;
+    while (w.phase === 'running' && t < 1500) {
+      w.steer = 0;
+      w.step(dt);
+      w.drainEvents();
+      t += dt;
+    }
+    expect(w.phase, '满配在 1500 秒里都没被打死，说明强度爬得太慢').toBe('lost');
+    expect(w.squad.z, '满配应当能推进相当一段距离才倒下').toBeGreaterThan(1500);
+  });
+
+  it('永远不会"通关"，只会打到全灭', () => {
+    const w = new World({ levelId: ENDLESS_ID, upgrades: kitted, seed: 5 });
+    const dt = 1 / 60;
+    for (let i = 0; i < 400 / dt && w.phase === 'running'; i++) {
+      w.steer = 0;
+      w.step(dt);
+      w.drainEvents();
+    }
+    expect(w.phase).not.toBe('won');
   });
 });

@@ -54,8 +54,8 @@ const trial = async (dodge) => page.evaluate((doDodge) => {
   while (w.squad.soldierCount < 380) w.squad.addSoldiers(50);
   w.squad.x = 0;
   w.squad.layout();
-  const R = 5.0;                 // BOSS.slam.radius
-  const TELEGRAPH = 1.15;
+  const R = window.__game.balance.BOSS.slam.radius;
+  const TELEGRAPH = window.__game.balance.BOSS.slam.telegraph;
   const cx = w.squad.x;          // 预警锁定的圆心
   const cz = w.squad.z + 2;
   const before = w.squad.soldierCount;

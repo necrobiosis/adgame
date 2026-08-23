@@ -95,6 +95,11 @@ export interface LevelDef {
   readonly clearGold: number;
   /** 本关所有普通敌人的血量倍率（配合玩家逐关变强的火力曲线）。 */
   readonly enemyHpScale: number;
+  /**
+   * 无尽模式：没有终点也没有 Boss 战，怪一路变强直到你顶不住。
+   * 打开之后血量缩放改成"按推进距离无上限地涨"，胜利条件也不再存在。
+   */
+  readonly endless?: boolean;
 }
 
 // 常用波次的简写构造器 ────────────────────────────────────────────
@@ -266,6 +271,67 @@ const LEVEL_5: LevelDef = {
 
 export const LEVELS: readonly LevelDef[] = [LEVEL_1, LEVEL_2, LEVEL_3, LEVEL_4, LEVEL_5];
 
+/** 无尽模式的关卡号。故意取一个战役用不到的值。 */
+export const ENDLESS_ID = 99;
+
+/**
+ * 无尽模式的赛道。
+ *
+ * 一段固定的节奏循环重复很多轮，每一轮的怪都更多更硬：
+ *   跑 → 尸潮 → 岔路 → 高墙 → 连续涌现 → 中 Boss → 岔路
+ *
+ * 没有终点、没有终极 Boss。怪的血量由 World 按推进距离无上限地拉，
+ * 中 Boss 的血量和体型也一轮比一轮大——玩到死为止，成绩就是你走了多远。
+ * 岔路本身仍然是每局现掷的，所以两把无尽不会长一个样。
+ */
+const ENDLESS_CYCLES = 80;
+
+function buildEndless(): LevelDef {
+  const beats: Beat[] = [];
+  for (let c = 0; c < ENDLESS_CYCLES; c++) {
+    const p = c + 1;
+    /**
+     * 数量封顶、强度不封顶。
+     *
+     * 一直堆数量的话，几百轮之后一波就是上千只——渲染扛不住，而且屏幕上
+     * 糊成一片反而没有压迫感。所以刷怪量爬到第 16 轮就不再涨，之后"越来越强"
+     * 全部由血量缩放承担（World.currentHpScale 按距离无上限地拉）。
+     */
+    const q = Math.min(p, 16);
+    beats.push({ t: 'run', len: 46 });
+    beats.push({ t: 'wave', wave: swarm(50 + q * 22, 6 + q * 4) });
+    beats.push({ t: 'run', len: 42 });
+    beats.push({ t: 'choice' });
+    beats.push({ t: 'run', len: 40 });
+    // 每隔一轮来一堵奖励高墙，给"要不要停下来啃"一个反复出现的决策点
+    if (c % 2 === 1) {
+      beats.push({
+        t: 'block', hp: 1800 * p, span: c % 4 === 1 ? 'left' : 'right',
+        bonus: 60 * p, tall: true,
+      });
+      beats.push({ t: 'run', len: 30 });
+    }
+    beats.push({ t: 'surge', seconds: 9 + q * 0.6, pulses: 5 + Math.floor(q / 3), wave: swarm(26 + q * 7, 3 + q * 2, 30) });
+    beats.push({ t: 'run', len: 44 });
+    beats.push({ t: 'midboss', hp: 1800 + p * 1500, scale: 1 + p * 0.045, name: '腐蚀主宰' });
+    beats.push({ t: 'choice' });
+  }
+  beats.push({ t: 'run', len: 60 });
+  return {
+    id: ENDLESS_ID,
+    name: '无尽模式',
+    subtitle: '撑到你撑不住为止',
+    clearGold: 0,
+    // 无尽模式里这个值是血量爬升的斜率，不是上限
+    enemyHpScale: 2.2,
+    endless: true,
+    beats,
+  };
+}
+
+const ENDLESS = buildEndless();
+
 export function getLevel(id: number): LevelDef {
+  if (id === ENDLESS_ID) return ENDLESS;
   return LEVELS[Math.max(0, Math.min(LEVELS.length - 1, id - 1))]!;
 }

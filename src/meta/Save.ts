@@ -11,6 +11,8 @@ export interface SaveData {
   upgrades: Record<UpgradeId, number>;
   /** 每关最好成绩：通关用时（秒），没通关就没有条目。 */
   bestTime: Partial<Record<number, number>>;
+  /** 无尽模式的最远推进距离（米）。 */
+  bestDistance?: number;
   muted: boolean;
 }
 

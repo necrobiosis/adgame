@@ -65,6 +65,11 @@ import { cannonGeometry, coinPileGeometry, shellGeometry } from './units/PropGeo
  * 强度必须一只一只调：发光量取决于身上有多少凸起的棱线，而腐化巨兽
  * 又宽又肿，同样的强度会把整个躯干糊成一团荧光绿，看不出体型。
  */
+/** 各 Boss 几何体的建模身高（米），检视镜头要靠它算头部位置。 */
+const BOSS_HEIGHT: Record<BossKind, number> = {
+  overlord: 2.9, plague: 2.75, maw: 3.35, apostle: 3.05, ender: 3.5,
+};
+
 const BOSS_CRACK: Record<BossKind, { color: number; strength: number }> = {
   overlord: { color: 0xff5a1a, strength: 4.5 },
   plague: { color: 0x9ce85a, strength: 2.2 },
@@ -515,10 +520,9 @@ export class GameView {
     let cz = world.squad.z;
     if (ins.target === 'boss' && world.boss.enemy) {
       cx = world.boss.enemy.x;
-      // Boss 几何体本身按 2.9 米建的模，还要再乘一层实例 scale（4.4 左右），
-      // 真实站高逼近 12 米——不能只按 scale 本身估头部高度，那样镜头会
-      // 钉在膝盖附近往上看天。
-      cy = world.boss.enemy.scale * 2.9 * 0.85;
+      // 五只 Boss 的建模身高各不相同（2.75~3.5），再乘一层实例 scale。
+      // 写死 2.9 的话，高个子那几只镜头会钉在胸口、直接埋进身体里。
+      cy = world.boss.enemy.scale * BOSS_HEIGHT[this.bossKind] * 0.9;
       cz = world.boss.enemy.z;
     } else if (ins.target === 'cannon') {
       const c = world.squad.units.find((u) => u.alive && u.isCannon);

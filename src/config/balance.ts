@@ -11,7 +11,7 @@
  * AoE 直径 12.8 米，比方阵还宽，怎么走都躲不开。路面拉宽 + 方阵收窄，
  * 两头一起改，横向闪避才第一次真的成立。
  */
-export const ROAD_HALF = 13;
+export const ROAD_HALF = 11;
 
 /** 方阵前进速度（战斗未被阻挡时）。 */
 export const ADVANCE_SPEED = 9.5;
@@ -20,7 +20,7 @@ export const ADVANCE_SPEED = 9.5;
 export const STRAFE_SPEED = 13;
 
 /** 方阵单位间距。 */
-export const SLOT_SPACING_X = 1.25;
+export const SLOT_SPACING_X = 1.2;
 export const SLOT_SPACING_Z = 1.3;
 
 /** 一排最多站几个人，超出就往后排。 */
@@ -32,7 +32,7 @@ export const SLOT_SPACING_Z = 1.3;
  * 满编方阵宽达 14 米。收到 8 列之后方阵宽度约 8.75 米，比 AoE 直径窄，
  * 整队才有可能一起挪出圈外。
  */
-export const FORMATION_MAX_COLS = 6;
+export const FORMATION_MAX_COLS = 5;
 
 /** 模拟层士兵上限（再多也不会更强，避免数值爆炸）。 */
 export const MAX_SOLDIERS = 400;
@@ -98,6 +98,23 @@ export const RANK_FIRE = {
 } as const;
 
 /** 士兵基础属性。 */
+/**
+ * 局内增益的封顶。
+ *
+ * 护甲/射速门都是**乘算**的（hpMul *= 1+pct/100）。战役一局最多吃到三五个，
+ * 完全没问题；无尽模式有一百多个门，乘着乘着单兵血量能涨到一千三百万——
+ * 实测跑到 6650 米时就是这个数，任何怪都打不动方阵，"无尽"直接变成散步。
+ * 乘算增益必须有天花板。
+ */
+export const BUFF_CAP = {
+  /** 护甲：单兵血量最多涨到基础值的多少倍。 */
+  hpMul: 14,
+  /** 射速。 */
+  fireRateMul: 6,
+  /** 伤害。 */
+  damageMul: 8,
+} as const;
+
 export const SOLDIER = {
   baseHp: 42,
   /** 僵尸贴到方阵后，每次啃咬的间隔。 */
@@ -263,13 +280,13 @@ export const BOSS = {
   /** 血量降到这些比例时进入下一阶段。 */
   phaseThresholds: [0.66, 0.33],
   /** 践踏 AoE。 */
-  slam: { telegraph: 1.15, radius: 5.0, damage: 55, cooldown: 6.5 },
+  slam: { telegraph: 1.15, radius: 4.4, damage: 55, cooldown: 6.5 },
   /** 召唤。 */
   summon: { count: 26, cooldown: 9.5 },
   /** 冲锋。 */
   charge: { telegraph: 1.0, speed: 26, laneHalfWidth: 3.4, damage: 40, cooldown: 11 },
   /** 天降雷击：随机点位、收缩的准星预警、小范围高伤害。 */
-  lightning: { telegraph: 1.3, radius: 4.4, damage: 60, cooldown: 10.5 },
+  lightning: { telegraph: 1.3, radius: 4.0, damage: 60, cooldown: 10.5 },
   /** Boss 停在竞技场里离方阵多远。 */
   standoff: 22,
   /**
@@ -359,7 +376,7 @@ export const BOSS_PLANS: Record<BossKind, BossPlan> = {
  * 会炸人的强化精英，机制刻意比终极 Boss 简单很多。
  */
 export const MIDBOSS = {
-  shock: { telegraph: 1.0, radius: 4.2, damage: 45, cooldown: 8 },
+  shock: { telegraph: 1.0, radius: 3.8, damage: 45, cooldown: 8 },
 } as const;
 
 // ─────────────────────────── 障碍方块 ───────────────────────────
@@ -389,7 +406,7 @@ export const BLOCK = {
    * 但僵尸能从缝里挤进来 —— 这样才不会出现"尸潮直接穿模走过钢块"的画面，
    * 同时保住了"一边啃方块一边被尸潮压上来"的压迫感。
    */
-  fullSpanHalfWidth: 11.2,
+  fullSpanHalfWidth: 9.2,
   /**
    * 方块是装甲的，必须凑近才打得动。
    * 没有这个限制的话，方阵会在三十米外就把它拆了，广告里那个

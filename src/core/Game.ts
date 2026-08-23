@@ -28,6 +28,13 @@ export class Game {
   private readonly screens: Screens;
   private readonly save: SaveData;
 
+  /**
+   * 开发期调试用：把平衡常量摊出来给自检脚本读。
+   * 脚本里写死这些数字的话，改一次配置就会悄悄失真——之前闪避自检就是
+   * 因为写死了半径，路面调窄之后还在拿旧数字算，结论完全不对。
+   */
+  readonly balance = { BOSS, MIDBOSS, ROAD_HALF, SPITTER };
+
   /** 开发期调试用：读当前局的模拟状态与渲染实例数。 */
   debug(): Record<string, unknown> {
     const w = this.world;
@@ -192,7 +199,10 @@ export class Game {
   private finish(won: boolean, goldEarned: number): void {
     const world = this.world!;
     this.save.gold += goldEarned;
-    if (won) {
+    if (world.level.endless) {
+      // 无尽模式没有"通关"，成绩是推进距离
+      this.save.bestDistance = Math.max(this.save.bestDistance ?? 0, world.distance);
+    } else if (won) {
       this.save.unlockedLevel = Math.max(this.save.unlockedLevel, Math.min(LEVELS.length, world.level.id + 1));
       const prev = this.save.bestTime[world.level.id];
       if (prev === undefined || world.stats.elapsed < prev) {
@@ -209,7 +219,9 @@ export class Game {
       levelId: world.level.id,
       stats: world.stats,
       goldEarned,
-      hasNext: world.level.id < LEVELS.length,
+      hasNext: !world.level.endless && world.level.id < LEVELS.length,
+      endless: world.level.endless,
+      distance: world.distance,
     });
   }
 

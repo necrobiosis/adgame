@@ -14,6 +14,15 @@ export class EnemyPool {
   private nextId = 1;
   /** 关卡血量/体型缩放。 */
   hpScale = 1;
+  /**
+   * 伤害缩放（无尽模式用）。
+   *
+   * 只拉血量是不够的：血厚的怪只是"更难杀"，不是"更危险"——伤害没变的话，
+   * 满配方阵可以一直磨下去，怪再厚也威胁不到它。真正让人扛不住的是它们
+   * 咬得越来越疼。这个值和 hpScale 分开算，因为伤害缩放致命得多，
+   * 爬升必须慢一档。
+   */
+  damageScale = 1;
   sizeScale = 1;
   /** 上一帧压在接触面上的僵尸数量（World 用它拖慢方阵前进）。 */
   contactCount = 0;
@@ -357,7 +366,7 @@ export class EnemyPool {
       e.attackCd = SOLDIER.hitCooldown;
 
       const st = ENEMY_STATS[e.kind];
-      const dmg = st.damage * e.damageMul;
+      const dmg = st.damage * e.damageMul * this.damageScale;
       for (let s = 0; s < st.sweep; s++) {
         const target = squad.pickFrontTarget(this.rng.next());
         if (!target) break;

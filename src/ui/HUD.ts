@@ -118,7 +118,8 @@ export class HUD {
 
     this.progressName.textContent = world.level.name;
     const pct = Math.round(world.progress * 100);
-    this.progressPct.textContent = `${pct}%`;
+    // 无尽模式没有终点，百分比毫无意义——直接报推进了多少米，那才是成绩
+    this.progressPct.textContent = world.level.endless ? `${Math.round(world.distance)} m` : `${pct}%`;
     this.progressFill.style.width = `${pct}%`;
 
     // 充能环用 conic-gradient 画，满了才点亮并允许点击

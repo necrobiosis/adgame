@@ -1,4 +1,5 @@
 import {
+  BUFF_CAP,
   FORMATION_MAX_COLS,
   MAX_SOLDIERS,
   MAX_WEAPON_LEVEL,
@@ -179,8 +180,10 @@ export class Squad {
 
   /** 全队加护甲：同时提高上限并按比例回血。 */
   addArmorPercent(pct: number): void {
-    const k = 1 + pct / 100;
-    this.hpMul *= k;
+    const before = this.hpMul;
+    // 乘算增益必须封顶——无尽模式一百多个门乘下来会把血量顶到天上去
+    this.hpMul = Math.min(BUFF_CAP.hpMul, this.hpMul * (1 + pct / 100));
+    const k = before > 0 ? this.hpMul / before : 1;
     const max = this.unitMaxHp;
     for (const u of this.units) {
       if (!u.alive) continue;
@@ -191,7 +194,7 @@ export class Squad {
   }
 
   addFireRatePercent(pct: number): void {
-    this.fireRateMul *= 1 + pct / 100;
+    this.fireRateMul = Math.min(BUFF_CAP.fireRateMul, this.fireRateMul * (1 + pct / 100));
   }
 
   // ── 每帧 ────────────────────────────────────────────────────

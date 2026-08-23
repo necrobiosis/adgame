@@ -29,6 +29,10 @@ const GATE_DEPTH = 5;
 const BLOCK_STOP_GAP = 5.5;
 /** 距离 Boss 竞技场多远触发 Boss。 */
 const BOSS_TRIGGER_AHEAD = 46;
+/** 无尽模式：进度条每这么多米走满一格（纯视觉分段）。 */
+const ENDLESS_RAMP = 220;
+/** 无尽模式：血量缩放的距离基准。越大爬得越慢。 */
+const ENDLESS_HP_RAMP = 500;
 
 export interface RunOptions {
   levelId: number;
@@ -92,7 +96,12 @@ export class World {
   /** 已触发、正在按节拍往外吐的尸潮涌现。 */
   private surges: { wave: WaveSpec; left: number; interval: number; timer: number }[] = [];
   private pendingSurges: { z: number; seconds: number; pulses: number; wave: WaveSpec }[] = [];
-  private pendingMidBoss: { hp: number; scale: number; name: string; z: number } | null = null;
+  /**
+   * 待触发的中 Boss。
+   * 以前是单个槽位，多写几个 midboss beat 只有最后一个生效——无尽模式要靠
+   * 一轮比一轮硬的中 Boss 撑起节奏，必须能同时排队。
+   */
+  private pendingMidBosses: { hp: number; scale: number; name: string; z: number }[] = [];
   private bossTriggered = false;
   private bossArenaTargetZ = 0;
   private nextId = 1;
@@ -148,14 +157,20 @@ export class World {
         case 'choice': {
           // 没写死 left/right 的岔路每局现掷 —— roguelike 的随机性在这里产生。
           // 定价参考"走到这个门时手里大概有多少钱"：太贵是死路，太便宜没取舍。
+          // 无尽模式的关卡号是 99，直接喂给掷门器会把强度算成 99 级——
+          // 波次规模和标价全部爆掉。改成按"第几个岔路"折算出一个虚拟关卡等级。
+          // 同样封顶：不封的话第 80 个岔路会按 32 级去掷，一波就是上千只怪
+          const rollLevel = this.level.endless
+            ? 1 + Math.min(choiceIndex, 18) * 0.4
+            : this.level.id;
           const rolled = beat.left && beat.right
             ? { left: beat.left, right: beat.right }
             : rollChoice(
                 this.rng,
-                { levelId: this.level.id, index: choiceIndex, total: totalChoices, sinceBodies },
+                { levelId: rollLevel, index: choiceIndex, total: totalChoices, sinceBodies },
                 // 实测的金币曲线：第三关三个门依次约 170 / 580 / 1500。
                 // 定价必须贴着它走，标高了就是一条永远走不了的死路。
-                110 * this.level.id * (0.5 + choiceIndex),
+                110 * rollLevel * (0.5 + choiceIndex),
               );
           choiceIndex++;
           const gaveBodies = [rolled.left, rolled.right].some(
@@ -200,7 +215,7 @@ export class World {
         case 'midboss':
           // 和 'wave' 一样只登记一个触发点，不占用赛道长度——中 boss
           // 不halt 方阵，没有竞技场
-          this.pendingMidBoss = { hp: beat.hp, scale: beat.scale, name: beat.name, z };
+          this.pendingMidBosses.push({ hp: beat.hp, scale: beat.scale, name: beat.name, z });
           break;
         case 'boss':
           this.arenaZ = z + 24;
@@ -212,7 +227,14 @@ export class World {
     this.bossArenaTargetZ = this.arenaZ - BOSS.standoff - 6;
   }
 
+  /** 无尽模式已经推进了多少米（成绩就是这个）。 */
+  get distance(): number {
+    return Math.max(0, this.squad.z);
+  }
+
   get progress(): number {
+    // 无尽模式没有终点：进度条改成一段一段循环填充，读起来像"又推进了一波"
+    if (this.level.endless) return (this.squad.z % ENDLESS_RAMP) / ENDLESS_RAMP;
     // Boss 一出场就把进度条推满，剩下的战斗用 Boss 血条表达
     if (this.bossTriggered) return 1;
     const goal = this.bossArenaTargetZ > 0 ? this.bossArenaTargetZ - BOSS_TRIGGER_AHEAD : this.totalLength;
@@ -314,14 +336,17 @@ export class World {
     this.collectPickups(out);
     this.firePendingWaves();
     this.updateSurges(dt);
-    if (this.pendingMidBoss && this.squad.z >= this.pendingMidBoss.z) {
-      const spec = this.pendingMidBoss;
-      this.pendingMidBoss = null;
+    for (let i = this.pendingMidBosses.length - 1; i >= 0; i--) {
+      const spec = this.pendingMidBosses[i]!;
+      if (this.squad.z < spec.z) continue;
+      this.pendingMidBosses.splice(i, 1);
       this.enemies.hpScale = this.currentHpScale();
       const mx = clamp(this.squad.x + this.rng.range(-4, 4), -ROAD_HALF + 1.5, ROAD_HALF - 1.5);
       this.midBoss.spawn(this.enemies, mx, this.squad.z + 60, spec.hp, spec.scale, spec.name, out);
     }
-    if (!this.bossTriggered && this.squad.z >= this.arenaZ - BOSS_TRIGGER_AHEAD) {
+    // 无尽模式没有 boss beat，arenaZ 会停在 0——不挡住的话开局第一帧就会
+    // "触发 Boss"：进度条瞬间满、bossArenaTargetZ 变成负数，方阵直接被钉死
+    if (!this.level.endless && !this.bossTriggered && this.squad.z >= this.arenaZ - BOSS_TRIGGER_AHEAD) {
       this.bossTriggered = true;
       this.enemies.hpScale = this.level.enemyHpScale;
       const beat = this.level.beats.find((b) => b.t === 'boss');
@@ -331,6 +356,7 @@ export class World {
     }
 
     // ── 战斗 ────────────────────────────────────────────────
+    this.enemies.damageScale = this.currentDamageScale();
     this.boss.update(dt, this.squad, this.enemies, out);
     this.midBoss.update(dt, this.squad, out);
     const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, this.ramming, out);
@@ -473,7 +499,25 @@ export class World {
    * 这样每关开局都能用 12 个起始士兵打得动，越往后越硬 —— 难度曲线和
    * 玩家自己的滚雪球速度对齐。
    */
+  /**
+   * 当前刷出来的怪吃多少血量倍率。
+   *
+   * 战役关是"从 1 涨到本关上限"的一条封顶曲线；无尽模式没有上限——
+   * 每往前推进 ENDLESS_RAMP 米就再乘一档，越往后越硬，直到你顶不住为止。
+   */
+  /** 无尽模式：敌人伤害随距离爬升。比血量爬得慢，因为伤害致命得多。 */
+  private currentDamageScale(): number {
+    if (!this.level.endless) return 1;
+    // 爬得必须够陡：方阵收窄到 5 列之后，同一时刻只有 6 只怪够得着前排，
+    // 而岔路又在源源不断地补员——伤害爬慢一点，满配方阵就是杀不死的，
+    // "无尽"会变成"无聊地一直走"。
+    return 1 + Math.pow(Math.max(0, this.squad.z) / ENDLESS_HP_RAMP, 1.15) * 1.7;
+  }
+
   private currentHpScale(): number {
+    if (this.level.endless) {
+      return 1 + Math.pow(Math.max(0, this.squad.z) / ENDLESS_HP_RAMP, 1.15) * this.level.enemyHpScale;
+    }
     const t = Math.pow(Math.max(0, Math.min(1, this.squad.z / Math.max(1, this.arenaZ))), 0.85);
     return 1 + (this.level.enemyHpScale - 1) * t;
   }

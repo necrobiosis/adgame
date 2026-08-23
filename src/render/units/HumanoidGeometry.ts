@@ -67,6 +67,20 @@ export interface HumanoidSpec {
   mouth?: 'closed' | 'open' | 'fanged';
   /** 收窄下颌/颧骨，脸更凹陷憔悴——小型僵尸用来和"缩小版士兵"拉开区别。 */
   gaunt?: boolean;
+  /**
+   * 头部整体放大倍率。
+   *
+   * Boss 按正常人体比例长出来的头，在实际游戏视距下只有几个像素——五官画得
+   * 再细也看不见。把头按怪物的比例放大（1.2~1.6），脸才成为剪影的一部分，
+   * "每只 Boss 长得不一样"这件事才真的成立。
+   */
+  headScale?: number;
+  /** 眼睛放大倍率。发光眼是 Boss 最先被看见的特征，通常要比人类比例大得多。 */
+  eyeScale?: number;
+  /** 眼睛排数：2 = 额头上再加一对更小的，读起来非人。 */
+  eyeRows?: number;
+  /** 下颌特征：獠牙 / 裂开的双瓣颚。 */
+  jaw?: 'none' | 'tusks' | 'split';
   /** 随机种子，用来做个体差异。 */
   seed?: number;
 }
@@ -166,13 +180,16 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
   // 憔悴：下颌+颧骨一起收窄，脸从"圆润"变"凹陷"——不改动脖子/颅顶，
   // 侧影读起来是同一个人瘦下去了，不是换了一颗头。
   const gauntK = spec.gaunt ? 0.82 : 1;
+  // 头整体放大：脖子那一节保持原样，只把下颌以上撑开，
+  // 否则脖子会跟着变粗、看起来像肿了一圈而不是"头大"
+  const hs = spec.headScale ?? 1;
   const headCtrl = densify([
     { t: 0.02, w: H * 0.030, h: H * 0.030, round: 0.95 },  // 脖子
-    { t: 0.22, w: H * 0.033, h: H * 0.033, round: 0.95 },
-    { t: 0.42, w: H * 0.045 * gauntK, h: H * 0.048 * gauntK, round: 0.9 },   // 下颌
-    { t: 0.66, w: H * 0.048 * gauntK, h: H * 0.052 * gauntK, round: 0.92 }, // 颧骨
-    { t: 0.88, w: H * 0.045, h: H * 0.048, round: 1 },     // 颅顶
-    { t: 1.0, w: H * 0.026, h: H * 0.03, round: 1 },
+    { t: 0.22, w: H * 0.033 * (1 + (hs - 1) * 0.4), h: H * 0.033 * (1 + (hs - 1) * 0.4), round: 0.95 },
+    { t: 0.42, w: H * 0.045 * gauntK * hs, h: H * 0.048 * gauntK * hs, round: 0.9 },   // 下颌
+    { t: 0.66, w: H * 0.048 * gauntK * hs, h: H * 0.052 * gauntK * hs, round: 0.92 }, // 颧骨
+    { t: 0.88, w: H * 0.045 * hs, h: H * 0.048 * hs, round: 1 },     // 颅顶
+    { t: 1.0, w: H * 0.026 * hs, h: H * 0.03 * hs, round: 1 },
   ], q);
   add(limb(neck, headTop, headCtrl, q), p.skin, [BONE.HEAD, BONE.CHEST]);
 
@@ -183,16 +200,17 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
   const noseY = neck.y + headLen * 0.49;
   const eyeY = neck.y + headLen * 0.58;
   const browY = neck.y + headLen * 0.64;
-  const faceZ = neck.z + headLen * 0.22;
+  const faceZ = neck.z + headLen * 0.22 * (spec.headScale ?? 1);
   void chinY;
 
   // 鼻子：往前突出一小块，侧影才不是一颗光球
-  add(place(accBox(H * 0.03, H * 0.024, H * 0.024, H * 0.01), {
+  add(place(accBox(H * 0.03 * hs, H * 0.024 * hs, H * 0.024 * hs, H * 0.01), {
     x: 0, y: noseY, z: faceZ,
   }), p.skin, [BONE.HEAD]);
 
   // ── 眼睛 ────────────────────────────────────────────────────
-  const eyeX = H * 0.021;
+  const es = spec.eyeScale ?? 1;
+  const eyeX = H * 0.021 * hs * (es > 1.6 ? 1.15 : 1);
   const eyesVariant = spec.eyes ?? 'zombie';
   if (eyesVariant === 'soldier') {
     for (const sx of [-1, 1] as const) {
@@ -213,18 +231,58 @@ export function buildHumanoid(spec: HumanoidSpec, q: BuildQuality): THREE.Buffer
     const eyeColor = eyesVariant === 'glow' ? p.bone : 0x0c0a08;
     for (const sx of [-1, 1] as const) {
       add(place(lathe([
-        [H * 0.009, 0], [H * 0.006, H * 0.012], [0.0004, H * 0.024],
+        [H * 0.013 * es, 0], [H * 0.009 * es, H * 0.018 * es], [0.0005, H * 0.034 * es],
       ], Math.max(5, Math.round(q.radialSegments * 0.5))), {
-        x: sx * eyeX, y: eyeY, z: faceZ + headLen * 0.03, rx: -1.15,
+        x: sx * eyeX, y: eyeY, z: faceZ + headLen * 0.03 * hs, rx: -1.15,
       }), eyeColor, [BONE.HEAD]);
+    }
+    // 第二排眼睛：额头上再来一对更小的，一眼读出"这不是人"
+    if ((spec.eyeRows ?? 1) >= 2) {
+      for (const sx of [-1, 1] as const) {
+        add(place(lathe([
+          [H * 0.006 * es, 0], [H * 0.004 * es, H * 0.008 * es], [0.0004, H * 0.016 * es],
+        ], Math.max(5, Math.round(q.radialSegments * 0.5))), {
+          x: sx * eyeX * 1.75, y: browY + headLen * 0.06, z: faceZ + headLen * 0.02 * hs, rx: -1.0,
+        }), eyeColor, [BONE.HEAD]);
+      }
     }
   }
 
   // ── 眉骨 ────────────────────────────────────────────────────
   if (minor) {
-    add(place(accBox(H * 0.05, H * 0.01, H * 0.014, H * 0.004), {
-      x: 0, y: browY, z: faceZ + headLen * 0.02, rx: -0.15,
+    add(place(accBox(H * 0.05 * hs, H * 0.01 * hs, H * 0.014, H * 0.004), {
+      x: 0, y: browY, z: faceZ + headLen * 0.02 * hs, rx: -0.15,
     }), p.dark, [BONE.HEAD]);
+  }
+
+  // ── 下颌特征 ────────────────────────────────────────────────
+  const jaw = spec.jaw ?? 'none';
+  if (jaw === 'tusks') {
+    // 从下颌两侧往上翘的一对獠牙
+    for (const sx of [-1, 1] as const) {
+      add(place(lathe([
+        [H * 0.011 * hs, 0], [H * 0.008 * hs, H * 0.03], [0.0005, H * 0.07 * hs],
+      ], Math.max(5, Math.round(q.radialSegments * 0.5))), {
+        x: sx * H * 0.03 * hs, y: mouthY - headLen * 0.04, z: faceZ,
+        rz: sx * 0.28, rx: -0.35,
+      }), p.bone, [BONE.HEAD]);
+    }
+  } else if (jaw === 'split') {
+    // 裂成两瓣的下颚，中间张开一道竖缝——喷吐类 Boss 的招牌
+    for (const sx of [-1, 1] as const) {
+      add(place(accBox(H * 0.022 * hs, H * 0.05 * hs, H * 0.03 * hs, H * 0.006), {
+        x: sx * H * 0.022 * hs, y: mouthY - headLen * 0.06, z: faceZ - headLen * 0.02,
+        rz: sx * 0.34,
+      }), p.skin, [BONE.HEAD]);
+      // 每瓣内侧一排牙
+      for (let i = 0; i < 3; i++) {
+        add(place(lathe([[H * 0.006 * hs, 0], [0.0004, H * 0.022 * hs]], 5), {
+          x: sx * (H * 0.014 * hs + i * H * 0.011 * hs),
+          y: mouthY - headLen * 0.02, z: faceZ + headLen * 0.01,
+          rx: Math.PI * 0.92, rz: sx * 0.2,
+        }), p.bone, [BONE.HEAD]);
+      }
+    }
   }
 
   // ── 嘴 ──────────────────────────────────────────────────────
@@ -732,7 +790,8 @@ export function bossGeometry(q: BuildQuality, kind: BossKind = 'overlord'): THRE
     case 'overlord':
       return buildHumanoid({
         height: 2.9, build: 1.95, hunch: 0.22, reach: -0.6, horns: true, claws: true, spikes: true, decayed: true,
-        eyes: 'glow', mouth: 'fanged', seed: 97,
+        // 方脸阔颌 + 一对上翘的獠牙，最"标准"的一张怪物脸
+        eyes: 'glow', mouth: 'fanged', headScale: 1.4, eyeScale: 1.7, jaw: 'tusks', seed: 97,
         // 近黑的炭化甲壳 + 骨白角爪的强对比；"亮色"不再来自皮肤本身，而是
         // CrowdMaterial 里叠加在磨损棱线上的熔纹自发光（见 GameView 的 crackGlow）
         palette: { skin: 0x231210, cloth: 0x160b09, dark: 0x0d0503, accent: 0xf5e8d0, bone: 0xffeede },
@@ -743,7 +802,9 @@ export function bossGeometry(q: BuildQuality, kind: BossKind = 'overlord'): THRE
     case 'plague':
       return buildHumanoid({
         height: 2.75, build: 2.35, hunch: 0.55, reach: -0.5, claws: true, spikes: true, decayed: true,
-        eyes: 'glow', mouth: 'open', gaunt: false, seed: 131,
+        // 肿胀的大头 + 额外一排小眼睛，读起来是"病变到不像人"
+        eyes: 'glow', mouth: 'open', gaunt: false,
+        headScale: 1.55, eyeScale: 1.3, eyeRows: 2, seed: 131,
         palette: { skin: 0x2c3a1c, cloth: 0x1d2612, dark: 0x0e1408, accent: 0xc8e070, bone: 0xdfe8b0 },
       }, q);
 
@@ -751,7 +812,9 @@ export function bossGeometry(q: BuildQuality, kind: BossKind = 'overlord'): THRE
     case 'maw':
       return buildHumanoid({
         height: 3.35, build: 1.62, hunch: 0.16, reach: -0.75, horns: true, claws: true, decayed: true,
-        eyes: 'glow', mouth: 'fanged', gaunt: true, seed: 173,
+        // 裂成两瓣的下颚——火墙就是从这张嘴里喷出来的，招式和长相要对得上
+        eyes: 'glow', mouth: 'fanged', gaunt: true,
+        headScale: 1.45, eyeScale: 1.25, jaw: 'split', seed: 173,
         palette: { skin: 0x3a2318, cloth: 0x24140d, dark: 0x120906, accent: 0xff9a3c, bone: 0xffd9a0 },
       }, q);
 
@@ -760,7 +823,8 @@ export function bossGeometry(q: BuildQuality, kind: BossKind = 'overlord'): THRE
     case 'apostle':
       return buildHumanoid({
         height: 3.05, build: 1.7, hunch: 0.06, reach: -0.4, horns: true, spikes: true, decayed: true,
-        eyes: 'glow', mouth: 'closed', seed: 211,
+        // 小脸、巨眼、抿着的嘴——光束的来源就是那对眼睛，其它五官全部让位
+        eyes: 'glow', mouth: 'closed', headScale: 1.15, eyeScale: 2.6, seed: 211,
         palette: { skin: 0x5a1418, cloth: 0x360b0e, dark: 0x1a0405, accent: 0xff4a52, bone: 0xffe0d8 },
       }, q);
 
@@ -768,7 +832,9 @@ export function bossGeometry(q: BuildQuality, kind: BossKind = 'overlord'): THRE
     case 'ender':
       return buildHumanoid({
         height: 3.5, build: 2.15, hunch: 0.3, reach: -0.7, horns: true, claws: true, spikes: true, decayed: true,
-        eyes: 'glow', mouth: 'fanged', seed: 251,
+        // 终局：最大的头、四只眼、獠牙，前面几只的特征全堆在一张脸上
+        eyes: 'glow', mouth: 'fanged',
+        headScale: 1.65, eyeScale: 1.6, eyeRows: 2, jaw: 'tusks', seed: 251,
         palette: { skin: 0x1a1424, cloth: 0x0f0a17, dark: 0x06040a, accent: 0xc9a8ff, bone: 0xeadcff },
       }, q);
   }

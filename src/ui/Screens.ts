@@ -1,5 +1,5 @@
 import { UPGRADES } from '../config/balance';
-import { LEVELS } from '../config/levels';
+import { ENDLESS_ID, LEVELS } from '../config/levels';
 import { buyUpgrade, nextCost, type SaveData } from '../meta/Save';
 import type { RunStats } from '../sim/World';
 
@@ -28,6 +28,9 @@ export interface ResultInfo {
   stats: RunStats;
   goldEarned: number;
   hasNext: boolean;
+  /** 无尽模式：没有"通关"，成绩是推进了多远。 */
+  endless?: boolean;
+  distance?: number;
 }
 
 /** 主菜单 / 商店 / 结算三个全屏界面。 */
@@ -76,6 +79,13 @@ export class Screens {
         <div class="stat gold" style="align-self:center;margin-bottom:6px"><div class="dot">$</div><div class="val">${this.save.gold}</div></div>
         <div class="section">选择关卡</div>
         <div class="levels"></div>
+        <button class="btn endless" data-endless>
+          <div class="num">∞</div>
+          <div class="meta">
+            <div class="n">无尽模式</div>
+            <div class="s">怪一路变强，撑到撑不住为止${this.save.bestDistance ? ` · 最远 ${Math.round(this.save.bestDistance)} m` : ''}</div>
+          </div>
+        </button>
         <div class="spacer"></div>
         <button class="btn gold" data-shop>兵工厂 · 永久升级</button>
         <div class="section">怎么玩</div>
@@ -114,6 +124,10 @@ export class Screens {
         this.actions.click();
         this.actions.startLevel(id);
       });
+    });
+    this.bind(el, '[data-endless]', () => {
+      this.actions.click();
+      this.actions.startLevel(ENDLESS_ID);
     });
     this.bind(el, '[data-shop]', () => this.actions.openShop());
     this.bind(el, '[data-mute]', () => {
@@ -186,18 +200,21 @@ export class Screens {
     const s = info.stats;
     const el = h(`
       <div class="screen">
-        <div class="result-title ${info.won ? 'win' : 'lose'}">${info.won ? '通 关' : '全 灭'}</div>
-        <div class="subtitle">${LEVELS[info.levelId - 1]!.name}</div>
+        <div class="result-title ${info.won ? 'win' : 'lose'}">${info.endless ? '力 竭' : info.won ? '通 关' : '全 灭'}</div>
+        <div class="subtitle">${info.endless ? '无尽模式' : LEVELS[info.levelId - 1]!.name}</div>
         <div class="result-stats">
           <div class="cell"><div class="k">击杀</div><div class="v">${s.kills}</div></div>
           <div class="cell"><div class="k">最高兵力</div><div class="v">${s.peakSoldiers}</div></div>
-          <div class="cell"><div class="k">用时</div><div class="v">${s.elapsed.toFixed(1)}s</div></div>
-          <div class="cell"><div class="k">获得金币</div><div class="v" style="color:var(--gold)">+${info.goldEarned}</div></div>
+          ${info.endless
+            ? `<div class="cell"><div class="k">推进距离</div><div class="v">${Math.round(info.distance ?? 0)} m</div></div>
+               <div class="cell"><div class="k">最远纪录</div><div class="v" style="color:var(--gold)">${Math.round(this.save.bestDistance ?? 0)} m</div></div>`
+            : `<div class="cell"><div class="k">用时</div><div class="v">${s.elapsed.toFixed(1)}s</div></div>
+               <div class="cell"><div class="k">获得金币</div><div class="v" style="color:var(--gold)">+${info.goldEarned}</div></div>`}
         </div>
         <div class="hint tips">${info.won ? this.winTip(info) : this.loseTip()}</div>
         <div class="spacer"></div>
         <div class="row" style="margin-bottom:9px">
-          <button class="btn" data-retry>重打这关</button>
+          <button class="btn" data-retry>${info.endless ? '再来一次' : '重打这关'}</button>
           ${info.won && info.hasNext ? '<button class="btn primary" data-next>下一关</button>' : ''}
         </div>
         <div class="row">
