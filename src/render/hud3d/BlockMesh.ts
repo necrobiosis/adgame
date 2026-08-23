@@ -22,9 +22,12 @@ export class BlockMesh {
 
   constructor(readonly block: BlockObstacle) {
     const w = block.x1 - block.x0;
-    const h = BLOCK.height;
+    const h = block.tall ? BLOCK.wallHeight : BLOCK.height;
     const d = 2.8;
-    const gold = block.span === 'full';
+    // 全宽方块本来就是"停下来硬啃"的名场面，天然按金块风格画；半宽的墙
+    // 只有带了额外奖励才值得画成金块——这是玩家一眼分辨"这堵墙有没有
+    // 奖励"的唯一线索，没有奖励的半宽墙照旧是朴素的钢铁挡板
+    const gold = block.span === 'full' || block.bonus > 0;
     const cx = (block.x0 + block.x1) / 2;
 
     this.baseEmissive = gold ? 0x2c1c00 : 0x0b0e12;

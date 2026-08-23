@@ -79,6 +79,19 @@ export interface BlockObstacle {
   /** x 范围（含）。 */
   x0: number;
   x1: number;
+  /** 打穿后除了常规按血量换算的金币，额外再给这么多——"奖励墙"用。 */
+  bonus: number;
+  /** 高墙：视觉上比普通方块高出一截（渲染层用，不影响碰撞判定）。 */
+  tall: boolean;
+}
+
+/** 路边可以直接走过去捡的金币堆。 */
+export interface GoldPickup {
+  id: number;
+  x: number;
+  z: number;
+  amount: number;
+  alive: boolean;
 }
 
 export interface GateGroup {
@@ -120,6 +133,7 @@ export type SimEventType =
   | 'midbossSpawn'
   | 'midbossAbility'    // 冲击波预警出现
   | 'midbossAbilityHit' // 冲击波命中
+  | 'goldPickup'        // 走过路边的金币堆
   | 'win'
   | 'lose';
 

@@ -2,6 +2,7 @@ import {
   ADVANCE_SPEED,
   BLOCK,
   BOSS,
+  GOLD_PICKUP,
   MELEE,
   ROAD_HALF,
   STRAFE_SPEED,
@@ -18,7 +19,7 @@ import { applyGate } from './Gates';
 import { MidBossController } from './MidBoss';
 import { Squad } from './Squad';
 import { LANE_SIGN, sideAtX } from './lanes';
-import type { BlockObstacle, GateGroup, Phase, SimEvent } from './types';
+import type { BlockObstacle, GateGroup, GoldPickup, Phase, SimEvent } from './types';
 
 /** 门本身的纵深（两片墙之间）。 */
 const GATE_DEPTH = 5;
@@ -55,6 +56,7 @@ export class World {
 
   readonly gates: GateGroup[] = [];
   readonly blocks: BlockObstacle[] = [];
+  readonly pickups: GoldPickup[] = [];
 
   /** 赛道总长（进度条用）。 */
   totalLength = 0;
@@ -103,9 +105,24 @@ export class World {
     let z = 0;
     for (const beat of this.level.beats as readonly Beat[]) {
       switch (beat.t) {
-        case 'run':
+        case 'run': {
+          // 路上撒几枚金币——每隔一段距离一枚，横向位置随机偏向路肩，
+          // 读起来像散落的战利品而不是精心摆放的一排
+          let localZ = GOLD_PICKUP.spacing * (0.5 + this.rng.next() * 0.5);
+          while (localZ < beat.len - 4) {
+            const side = this.rng.next() < 0.5 ? -1 : 1;
+            this.pickups.push({
+              id: this.nextId++,
+              x: side * this.rng.range(2.5, ROAD_HALF - 1.5),
+              z: z + localZ,
+              amount: Math.round(this.rng.range(GOLD_PICKUP.amountMin, GOLD_PICKUP.amountMax)),
+              alive: true,
+            });
+            localZ += GOLD_PICKUP.spacing * (0.7 + this.rng.next() * 0.6);
+          }
           z += beat.len;
           break;
+        }
         case 'choice':
           this.gates.push({ id: this.nextId++, z, left: beat.left, right: beat.right, taken: false, chosen: null });
           z += GATE_DEPTH;
@@ -131,6 +148,8 @@ export class World {
             flash: 0,
             x0,
             x1,
+            bonus: beat.bonus ?? 0,
+            tall: beat.tall ?? false,
           });
           z += 12;
           break;
@@ -221,6 +240,7 @@ export class World {
 
     // ── 触发器 ──────────────────────────────────────────────
     this.checkGates(prevZ, out);
+    this.collectPickups(out);
     this.firePendingWaves();
     if (this.pendingMidBoss && this.squad.z >= this.pendingMidBoss.z) {
       const spec = this.pendingMidBoss;
@@ -260,6 +280,17 @@ export class World {
       this.gold += this.level.clearGold;
       this.stats.goldEarned += this.level.clearGold;
       out.push({ type: 'win', amount: this.level.clearGold });
+    }
+  }
+
+  /** 路边的金币堆不用打，方阵走到就自动收进口袋。 */
+  private collectPickups(out: SimEvent[]): void {
+    for (const p of this.pickups) {
+      if (!p.alive || this.squad.z < p.z) continue;
+      p.alive = false;
+      this.gold += p.amount;
+      this.stats.goldEarned += p.amount;
+      out.push({ type: 'goldPickup', x: p.x, y: 0.6, z: p.z, amount: p.amount });
     }
   }
 

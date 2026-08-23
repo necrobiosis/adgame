@@ -40,7 +40,7 @@ import {
   zombieGeometry,
   type BuildQuality,
 } from './units/HumanoidGeometry';
-import { cannonGeometry, shellGeometry } from './units/PropGeometry';
+import { cannonGeometry, coinPileGeometry, shellGeometry } from './units/PropGeometry';
 
 /**
  * 各类敌人的实例缓冲上限。
@@ -76,6 +76,8 @@ const DYING_TIME = 0.55;
 
 /** 大炮的渲染上限。单门约 6.6k 三角形，32 门封顶约 21 万。 */
 const MAX_RENDERED_CANNONS = 32;
+/** 一关撒的金币堆数量留足余量（按 GOLD_PICKUP.spacing 估算，最长的关卡也就二十来枚）。 */
+const MAX_RENDERED_PICKUPS = 48;
 
 export interface FloatRequest {
   text: string;
@@ -116,6 +118,8 @@ export class GameView {
   squadOverflow: { total: number; shown: number; x: number; y: number; z: number } | null = null;
   private cannons!: THREE.InstancedMesh;
   private shells!: THREE.InstancedMesh;
+  private pickupMesh!: THREE.InstancedMesh;
+  private pickupSpin = 0;
   private readonly bars = new HealthBarBatch(64);
   private readonly tracers = new Tracers();
   private readonly sparks = new Particles(900, true);
@@ -279,6 +283,17 @@ export class GameView {
     this.shells.count = 0;
     this.scene.add(this.shells);
 
+    this.pickupMesh = new THREE.InstancedMesh(
+      coinPileGeometry(),
+      industrial({ ...PRESET.gold(), color: 0xffffff }),
+      MAX_RENDERED_PICKUPS,
+    );
+    this.pickupMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.pickupMesh.frustumCulled = false;
+    this.pickupMesh.count = 0;
+    this.pickupMesh.castShadow = this.r.quality.shadowMap > 0;
+    this.scene.add(this.pickupMesh);
+
     this.scene.add(
       this.bars.mesh, this.tracers.mesh, this.sparks.mesh, this.smoke.mesh, this.gold.mesh,
       this.ring.mesh, this.lane.mesh, this.reticle.mesh, this.lightning.group, this.midRing.mesh,
@@ -300,11 +315,13 @@ export class GameView {
     this.matSets.length = 0;
     this.scene.remove(this.soldiers.mesh);
     this.soldiers.dispose();
-    this.scene.remove(this.cannons, this.shells);
+    this.scene.remove(this.cannons, this.shells, this.pickupMesh);
     this.cannons.geometry.dispose();
     (this.cannons.material as THREE.Material).dispose();
     this.shells.geometry.dispose();
     (this.shells.material as THREE.Material).dispose();
+    this.pickupMesh.geometry.dispose();
+    (this.pickupMesh.material as THREE.Material).dispose();
     this.buildCharacters();
     this.buildProps();
   }
@@ -420,6 +437,7 @@ export class GameView {
     this.syncShells(world);
     this.syncBoss(world, dt);
     this.syncMidBoss(world);
+    this.syncPickups(world, dt);
 
     for (const g of this.gateWalls) g.wall.update(dt);
     for (const gate of world.gates) {
@@ -657,6 +675,25 @@ export class GameView {
     if (n > 0) this.shells.instanceMatrix.needsUpdate = true;
   }
 
+  /** 路边的金币堆：慢慢自转 + 轻微起伏，捡到的（!alive）直接不再分配实例槽位，当场消失。 */
+  private syncPickups(world: World, dt: number): void {
+    this.pickupSpin += dt;
+    let n = 0;
+    for (const p of world.pickups) {
+      if (!p.alive) continue;
+      if (n >= MAX_RENDERED_PICKUPS) break;
+      const y = 0.4 + Math.sin(this.pickupSpin * 2.2 + p.id) * 0.06;
+      this.v.set(p.x, y, p.z);
+      this.q.setFromAxisAngle(this.axisY, this.pickupSpin * 1.4 + p.id);
+      this.sc.set(1, 1, 1);
+      this.m.compose(this.v, this.q, this.sc);
+      this.pickupMesh.setMatrixAt(n, this.m);
+      n++;
+    }
+    this.pickupMesh.count = n;
+    if (n > 0) this.pickupMesh.instanceMatrix.needsUpdate = true;
+  }
+
   private syncBoss(world: World, dt: number): void {
     const batch = this.batches.get('boss')!;
     batch.begin();
@@ -810,6 +847,14 @@ export class GameView {
           this.gold.burst(ev.x!, 1.4, ev.z! - 1.4, 46);
           this.camera.punch(0.5);
           this.floats.push({ text: `+${ev.amount ?? 0} 金币`, color: '#ffd44d', x: ev.x!, y: 3.2, z: ev.z!, big: true });
+          break;
+        }
+        case 'goldPickup': {
+          this.gold.burst(ev.x!, ev.y!, ev.z!, 6);
+          this.sparks.burst(ev.x!, ev.y!, ev.z!, {
+            count: 10, color: 0xffd54a, speed: [2, 6], size: [0.3, 0.6], life: [0.2, 0.4], grow: -0.5, lift: 2,
+          });
+          this.floats.push({ text: `+${ev.amount ?? 0}`, color: '#ffd44d', x: ev.x!, y: 1.6, z: ev.z! });
           break;
         }
         case 'gate': {

@@ -169,3 +169,25 @@ export function shellGeometry(): THREE.BufferGeometry {
   geo.rotateX(Math.PI / 2);
   return geo;
 }
+
+/** 路边金币堆：几枚错落叠着的金币，颜色两两交替，一眼认得出"这堆能捡"。 */
+export function coinPileGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const n = 5;
+  let y = 0;
+  for (let i = 0; i < n; i++) {
+    const r = 0.34 - i * 0.014;
+    const th = 0.075;
+    const coin = lathe([
+      [0.0006, 0], [r, 0.014], [r, th - 0.014], [0.0006, th],
+    ], 16);
+    parts.push(paint(
+      place(coin, { x: (i % 2 === 0 ? 1 : -1) * 0.02, y, ry: i * 0.7 }),
+      i % 2 === 0 ? 0xf5d24a : 0xe0b830,
+    ));
+    y += th * 0.72;
+  }
+  let geo = merge(parts);
+  geo = weldSmooth(geo, 40);
+  return bakeSurface(geo, { gridSize: 16, rays: 8, steps: 3 });
+}

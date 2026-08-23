@@ -302,6 +302,7 @@ export class Game {
         case 'cannonFire': this.audio.cannon(); break;
         case 'shellImpact': this.audio.explosion(); break;
         case 'blockDestroyed': this.audio.blockBreak(); break;
+        case 'goldPickup': this.audio.coinPickup(); break;
         case 'gate': this.audio.gate(ev.gate ? ev.gate.type !== 'sub' && ev.gate.type !== 'div' : true); break;
         case 'bossSpawn':
         case 'bossPhase':

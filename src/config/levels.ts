@@ -45,7 +45,15 @@ export type Beat =
   | { readonly t: 'run'; readonly len: number }
   | { readonly t: 'choice'; readonly left: LaneChoice; readonly right: LaneChoice }
   | { readonly t: 'wave'; readonly wave: WaveSpec }
-  | { readonly t: 'block'; readonly hp: number; readonly span: BlockSpan }
+  | {
+      readonly t: 'block';
+      readonly hp: number;
+      readonly span: BlockSpan;
+      /** 打穿后额外再给这么多金币——"奖励墙"用，不给就是普通挡路方块。 */
+      readonly bonus?: number;
+      /** 高墙：视觉上明显更高（配合 span 'left'/'right' 用——只挡半条路，可以绕过去）。 */
+      readonly tall?: boolean;
+    }
   | { readonly t: 'midboss'; readonly hp: number; readonly scale: number; readonly name: string }
   | { readonly t: 'boss'; readonly hp: number; readonly scale: number; readonly name: string };
 
@@ -101,7 +109,8 @@ const LEVEL_1: LevelDef = {
       right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'screamer', count: 3 }, { kind: 'walker', count: 30 }]), hint: '精英' },
     },
     { t: 'run', len: 75 },
-    { t: 'block', hp: 2400, span: 'left' },
+    // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
+    { t: 'block', hp: 2400, span: 'left', bonus: 80, tall: true },
     { t: 'run', len: 44 },
     {
       t: 'choice',
@@ -146,6 +155,9 @@ const LEVEL_2: LevelDef = {
       right: { gate: { type: 'add', value: 70 }, wave: elite([{ kind: 'brute', count: 5 }, { kind: 'titan', count: 1 }]), hint: '精英' },
     },
     { t: 'run', len: 73 },
+    // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
+    { t: 'block', hp: 7500, span: 'right', bonus: 130, tall: true },
+    { t: 'run', len: 16 },
     { t: 'midboss', hp: 5500, scale: 1.08, name: '疫化魁首' },
     {
       t: 'choice',
@@ -184,7 +196,8 @@ const LEVEL_3: LevelDef = {
       right: { gate: { type: 'mul', value: 2 }, wave: elite([{ kind: 'titan', count: 3 }, { kind: 'screamer', count: 4 }]), hint: '精英' },
     },
     { t: 'run', len: 67 },
-    { t: 'block', hp: 18000, span: 'right' },
+    // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
+    { t: 'block', hp: 18000, span: 'right', bonus: 200, tall: true },
     { t: 'run', len: 32 },
     { t: 'midboss', hp: 9500, scale: 1.15, name: '尸潮领班' },
     {
@@ -222,7 +235,10 @@ const LEVEL_4: LevelDef = {
       left:  { gate: { type: 'cannon', value: 8 }, wave: swarm(420, 64), hint: '蜂群' },
       right: { gate: { type: 'add', value: 120 }, wave: elite([{ kind: 'titan', count: 4 }, { kind: 'brute', count: 6 }]), hint: '精英' },
     },
-    { t: 'run', len: 64 },
+    { t: 'run', len: 48 },
+    // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
+    { t: 'block', hp: 48000, span: 'left', bonus: 260, tall: true },
+    { t: 'run', len: 16 },
     { t: 'midboss', hp: 15000, scale: 1.25, name: '赤红囚徒' },
     {
       t: 'choice',
@@ -260,7 +276,8 @@ const LEVEL_5: LevelDef = {
       right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 6 }]), hint: '精英' },
     },
     { t: 'run', len: 58 },
-    { t: 'block', hp: 90000, span: 'left' },
+    // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
+    { t: 'block', hp: 90000, span: 'left', bonus: 420, tall: true },
     { t: 'run', len: 29 },
     { t: 'midboss', hp: 24000, scale: 1.35, name: '深渊先驱' },
     {

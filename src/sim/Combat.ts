@@ -95,7 +95,7 @@ export class Combat {
         });
         if (block.hp <= 0 && block.alive) {
           block.alive = false;
-          const gold = Math.round((block.maxHp / 100) * BLOCK.goldPerHundredHp);
+          const gold = Math.round((block.maxHp / 100) * BLOCK.goldPerHundredHp) + block.bonus;
           goldEarned += gold;
           out.push({ type: 'blockDestroyed', x: (block.x0 + block.x1) / 2, y: 1.6, z: block.z, amount: gold });
         } else {
@@ -145,7 +145,7 @@ export class Combat {
         block.flash = 0.1;
         if (block.hp <= 0) {
           block.alive = false;
-          const g = Math.round((block.maxHp / 100) * BLOCK.goldPerHundredHp);
+          const g = Math.round((block.maxHp / 100) * BLOCK.goldPerHundredHp) + block.bonus;
           gold += g;
           out.push({ type: 'blockDestroyed', x: (block.x0 + block.x1) / 2, y: 1.6, z: block.z, amount: g });
         }

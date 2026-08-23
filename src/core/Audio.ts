@@ -65,6 +65,10 @@ export class Audio {
     this.chime([880, 1320, 1760], 0.18, 0.12);
   }
 
+  coinPickup(): void {
+    this.chime([880, 1175], 0.14, 0.12);
+  }
+
   gate(good: boolean): void {
     this.chime(good ? [523, 659, 784, 1047] : [392, 330, 262], 0.5, 0.16);
   }
