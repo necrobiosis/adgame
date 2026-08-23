@@ -59,13 +59,18 @@ import { cannonGeometry, coinPileGeometry, shellGeometry } from './units/PropGeo
  * 那一批**画出来。被舍弃的都在百米开外、埋在雾里，屏幕上只有几个像素，
  * 而模拟层里它们照常存在、照常推进、照常啃人，玩法一点没变。
  */
-/** 每个 Boss 的熔纹发光色——和它的招式配色对得上。 */
-const BOSS_CRACK: Record<BossKind, number> = {
-  overlord: 0xff5a1a,
-  plague: 0x9ce85a,
-  maw: 0xff9a3c,
-  apostle: 0xff3a44,
-  ender: 0xc9a8ff,
+/**
+ * 每个 Boss 的熔纹发光色和强度——和它的招式配色对得上。
+ *
+ * 强度必须一只一只调：发光量取决于身上有多少凸起的棱线，而腐化巨兽
+ * 又宽又肿，同样的强度会把整个躯干糊成一团荧光绿，看不出体型。
+ */
+const BOSS_CRACK: Record<BossKind, { color: number; strength: number }> = {
+  overlord: { color: 0xff5a1a, strength: 4.5 },
+  plague: { color: 0x9ce85a, strength: 2.2 },
+  maw: { color: 0xff9a3c, strength: 4.0 },
+  apostle: { color: 0xff3a44, strength: 3.6 },
+  ender: { color: 0xc9a8ff, strength: 4.2 },
 };
 
 const CROWD_CAPACITY: Record<EnemyKind, number> = {
@@ -324,7 +329,7 @@ export class GameView {
     const set = createCrowdMaterial({
       emissive: 0x180502, roughness: 0.62, metalness: 0.12,
       wearColor: 0x241008, wear: 0.14, grungeColor: 0x0a0503, grunge: 0.22, ao: 0.75,
-      crackGlow: true, crackColor: BOSS_CRACK[kind], crackStrength: 4.5,
+      crackGlow: true, crackColor: BOSS_CRACK[kind].color, crackStrength: BOSS_CRACK[kind].strength,
     });
     set.setPivots(geometryPivots(geo));
     this.matSets.push(set);

@@ -64,6 +64,35 @@ describe('每个 Boss 只用自己那套招', () => {
   });
 });
 
+describe('每个 Boss 都会放出自己的招牌技', () => {
+  // 实机录像里第一关抓不到预警——满配方阵会在开场冷却转完之前就把 36000 血的
+  // 深渊领主打死。这里给它一条打不完的血，确认招式本身是会放的。
+  const SIGNATURE: Record<BossKind, string> = {
+    overlord: 'slam',
+    plague: 'quake',
+    maw: 'breath',
+    apostle: 'beam',
+    ender: 'slam',
+  };
+  for (const kind of Object.keys(SIGNATURE) as BossKind[]) {
+    it(`${kind} 会放出 ${SIGNATURE[kind]}`, () => {
+      const s = runUntilTelegraph(kind, SIGNATURE[kind], 90);
+      expect(s, `${kind} 在 90 秒里一次都没放出 ${SIGNATURE[kind]}`).toBeTruthy();
+    });
+  }
+
+  it('终末之主会潜地', () => {
+    const s = setup('ender');
+    const dt = 1 / 60;
+    let sub = false;
+    for (let i = 0; i < 90 / dt && !sub; i++) {
+      s.boss.update(dt, s.squad, s.pool, s.out);
+      if (s.boss.invulnerable) sub = true;
+    }
+    expect(sub).toBe(true);
+  });
+});
+
 describe('新招式都躲得掉', () => {
   it('半场毒爆：站到另外半边就完全不挨打', () => {
     const s = runUntilTelegraph('plague', 'quake');
