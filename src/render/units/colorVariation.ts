@@ -48,6 +48,9 @@ export const ENEMY_JITTER: Record<string, JitterOptions> = {
   leaper:   { hue: 0.040, saturation: 0.16, lightness: 0.13 },
   // 重甲是制式装备，不该五颜六色——只留一点点金属色差
   armored:  { hue: 0.012, saturation: 0.06, lightness: 0.09 },
+  swarmling:{ hue: 0.060, saturation: 0.22, lightness: 0.16 },
+  // 自爆尸的橙色是"警告色"，不能被色相抖动冲淡
+  bomber:   { hue: 0.010, saturation: 0.08, lightness: 0.10 },
   midboss:  { hue: 0, saturation: 0, lightness: 0 },
   boss:     { hue: 0, saturation: 0, lightness: 0 },
 };

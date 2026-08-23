@@ -1,4 +1,4 @@
-import { ENEMY_STATS, LEAPER, MELEE, ROAD_HALF, SCREAMER_AURA, SIZE_JITTER, SOLDIER, SPITTER, type EnemyKind } from '../config/balance';
+import { BOMBER, ENEMY_STATS, LEAPER, MELEE, ROAD_HALF, SCREAMER_AURA, SIZE_JITTER, SOLDIER, SPITTER, type EnemyKind } from '../config/balance';
 import type { Rng } from '../core/Rng';
 import type { WaveSpec } from '../config/levels';
 import type { Squad } from './Squad';
@@ -125,6 +125,36 @@ export class EnemyPool {
     return 0;
   }
 
+  /**
+   * 自爆：一圈范围伤害，然后自己也没了。
+   *
+   * 走的是 kill 事件那条路（有金币、有倒地动画），因为对玩家来说这确实是
+   * 一次击杀——只是这份击杀是它自己送的，代价由方阵付。
+   */
+  private detonate(e: Enemy, squad: Squad, out: SimEvent[]): void {
+    const dmg = BOMBER.damage * this.damageScale;
+    let hits = 0;
+    for (const u of squad.units) {
+      if (!u.alive) continue;
+      const dx = u.x - e.x;
+      const dz = u.z - e.z;
+      if (dx * dx + dz * dz > BOMBER.radius * BOMBER.radius) continue;
+      u.hp -= dmg;
+      u.flash = 0.16;
+      hits++;
+      if (u.hp <= 0) {
+        u.alive = false;
+        squad.markDirty();
+        out.push({ type: 'soldierDown', x: u.x, y: 0.9, z: u.z });
+      }
+    }
+    e.alive = false;
+    e.hp = 0;
+    e.dying = DYING_TIME;
+    out.push({ type: 'bomberBlast', x: e.x, y: 0.6, z: e.z, radius: BOMBER.radius, amount: hits });
+    out.push({ type: 'kill', x: e.x, y: 0.9 * e.scale, z: e.z, kind: e.kind, amount: 0 });
+  }
+
   update(dt: number, squad: Squad, barrier: BlockObstacle | null, out: SimEvent[]): void {
     // 嚎叫者光环：先收集，再套用
     const screamers: Enemy[] = [];
@@ -191,6 +221,14 @@ export class EnemyPool {
           this.startLeap(e, squad, out);
           continue;
         }
+      }
+
+      // ── 自爆尸：走到跟前直接炸开，不进近战队列 ────────────
+      // 它没有"啃前排"这一步——所以堆再厚的前排也挡不住，
+      // 唯一的解法是在它靠上来之前打掉。
+      if (e.kind === 'bomber' && e.z - squad.z < BOMBER.fuseRange + e.scale) {
+        this.detonate(e, squad, out);
+        continue;
       }
 
       // 已经压到接触面上的，交给下面的排队逻辑统一处理

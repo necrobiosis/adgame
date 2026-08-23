@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BOSS, MIDBOSS, ROAD_HALF, SPITTER } from '../config/balance';
+import { BOMBER, BOSS, LOADOUT, MIDBOSS, ROAD_HALF, SPITTER, WEAPON_TIERS } from '../config/balance';
 import { LEVELS } from '../config/levels';
 import { GameView } from '../render/GameView';
 import { Renderer } from '../render/Renderer';
@@ -33,7 +33,7 @@ export class Game {
    * 脚本里写死这些数字的话，改一次配置就会悄悄失真——之前闪避自检就是
    * 因为写死了半径，路面调窄之后还在拿旧数字算，结论完全不对。
    */
-  readonly balance = { BOSS, MIDBOSS, ROAD_HALF, SPITTER };
+  readonly balance = { BOMBER, BOSS, LOADOUT, MIDBOSS, ROAD_HALF, SPITTER, WEAPON_TIERS };
 
   /** 开发期调试用：读当前局的模拟状态与渲染实例数。 */
   debug(): Record<string, unknown> {
@@ -183,7 +183,12 @@ export class Game {
     this.audio.unlock();
     this.screens.hide();
     this.floats.clear();
-    const world = new World({ levelId: id, upgrades: this.save.upgrades, seed: (Date.now() & 0xffff) || 1 });
+    const world = new World({
+      levelId: id,
+      upgrades: this.save.upgrades,
+      loadout: this.save.loadout,
+      seed: (Date.now() & 0xffff) || 1,
+    });
     this.world = world;
     this.view.buildLevel(world);
     this.input.reset(0);
@@ -379,6 +384,7 @@ export class Game {
         // 酸液抛射：飞行时长就是预警时长，听觉上和地上的圈同步
         case 'spitterFire': this.audio.telegraph(SPITTER.telegraph, 'shock', pan(ev.tx)); break;
         case 'spitterHit': this.audio.acidSplash(pan(ev.x)); break;
+        case 'bomberBlast': this.audio.explosion(pan(ev.x)); break;
         case 'leaperJump': this.audio.leap(pan(ev.x)); break;
         case 'leaperLand': this.audio.footstep(pan(ev.x)); break;
         case 'strikeCall': this.audio.strikeCall(); break;

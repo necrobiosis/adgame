@@ -19,7 +19,7 @@ await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
 await page.waitForTimeout(1200);
 
 // muted:false —— 要真的走合成路径
-const save = '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{"squad":12,"damage":8,"fireRate":8,"cannon":4,"armor":8,"weapon":3},"bestTime":{},"muted":false}';
+const save = '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{"squad":12,"damage":8,"fireRate":8,"cannon":4,"armor":8,"weapon":4,"slots":1},"loadout":["squad","damage","fireRate","weapon","cannon"],"bestTime":{},"muted":false}';
 await page.evaluate((s) => localStorage.setItem('adgame.save.v1', s), save);
 await page.evaluate((q) => localStorage.setItem('adgame.quality', q), 'medium');
 await page.reload({ waitUntil: 'networkidle' });

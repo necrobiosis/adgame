@@ -48,6 +48,12 @@ import {
   spitterGeometry,
   titanGeometry,
   zombieGeometry,
+  swarmlingGeometry,
+  bomberGeometry,
+  zombieVariantGeometry,
+  runnerVariantGeometry,
+  ZOMBIE_VARIANTS,
+  RUNNER_VARIANTS,
   type BuildQuality,
 } from './units/HumanoidGeometry';
 import { cannonGeometry, coinPileGeometry, shellGeometry } from './units/PropGeometry';
@@ -78,6 +84,25 @@ const BOSS_CRACK: Record<BossKind, { color: number; strength: number }> = {
   ender: { color: 0xc9a8ff, strength: 4.2 },
 };
 
+/** `walker#2` → `walker`。批次键里带变体号，统计和材质仍按种类走。 */
+function baseKind(key: string): EnemyKind {
+  const i = key.indexOf('#');
+  return (i < 0 ? key : key.slice(0, i)) as EnemyKind;
+}
+
+/** 实例 → 批次键。同一种杂兵按 id 摊到几套体型上。 */
+function batchKey(e: Enemy): string {
+  if (e.kind === 'walker') {
+    const v = e.id % ZOMBIE_VARIANTS;
+    return v === 0 ? 'walker' : `walker#${v}`;
+  }
+  if (e.kind === 'runner') {
+    const v = e.id % RUNNER_VARIANTS;
+    return v === 0 ? 'runner' : `runner#${v}`;
+  }
+  return e.kind;
+}
+
 const CROWD_CAPACITY: Record<EnemyKind, number> = {
   walker: 360,
   runner: 200,
@@ -89,6 +114,8 @@ const CROWD_CAPACITY: Record<EnemyKind, number> = {
   spitter: 60,
   leaper: 90,
   armored: 60,
+  swarmling: 420,
+  bomber: 60,
 };
 
 /**
@@ -151,7 +178,11 @@ export class GameView {
    * 共用一套材质的话后建的会把先建的轴心覆盖掉，蒙皮整个错位。
    */
   private readonly matSets: CrowdMaterialSet[] = [];
-  private readonly batches = new Map<EnemyKind, CrowdBatch>();
+  /**
+   * 批次键：普通怪就是 kind 本身，尸群/疾行者拆成 `walker#0`…`runner#2`
+   * 几个体型变体各占一个批次。实例按 id 分流，同一片尸潮里高矮胖瘦都有。
+   */
+  private readonly batches = new Map<string, CrowdBatch>();
   private readonly tints = new Map<EnemyKind, THREE.Color>();
   private soldiers!: CrowdBatch;
   private soldierMatSet!: CrowdMaterialSet;
@@ -219,6 +250,14 @@ export class GameView {
   private readonly q = new THREE.Quaternion();
   private readonly sc = new THREE.Vector3(1, 1, 1);
   private readonly axisY = new THREE.Vector3(0, 1, 0);
+  /**
+   * 每帧留给"高频小事件"（炮弹落地、击杀、酸液）的镜头抖动配额。
+   *
+   * punch() 是累加的，衰减只有 2.6/秒。四十门大炮每秒落弹接近三十发，
+   * 每发 0.16 就是每秒往里灌 4.6——抖动会被死死顶在上限，整局画面一直在震。
+   * 大事件（Boss 重击、打碎方块）不走这条路，照旧满额抖。
+   */
+  private shakeBudget = 0;
   private readonly rng = new Rng(0xc0ffee);
   /** 太阳相对方阵的固定偏移，保证阴影方向在整局里是一致的。 */
   private readonly sunOffset = new THREE.Vector3(-38, 52, 28);
@@ -240,7 +279,7 @@ export class GameView {
       lengthDetail: this.r.quality.lengthDetail,
       accessory: this.r.quality.accessory,
     };
-    const geos: Record<EnemyKind, (q: BuildQuality) => THREE.BufferGeometry> = {
+    const geos: Record<string, (q: BuildQuality) => THREE.BufferGeometry> = {
       walker: zombieGeometry,
       runner: runnerGeometry,
       screamer: screamerGeometry,
@@ -251,11 +290,17 @@ export class GameView {
       spitter: spitterGeometry,
       leaper: leaperGeometry,
       armored: armoredGeometry,
+      swarmling: swarmlingGeometry,
+      bomber: bomberGeometry,
     };
+    // 尸群/疾行者换成多套体型：0 号沿用原来的键，其余挂在 `kind#n` 上
+    for (let v = 1; v < ZOMBIE_VARIANTS; v++) geos[`walker#${v}`] = (bq) => zombieVariantGeometry(bq, v);
+    for (let v = 1; v < RUNNER_VARIANTS; v++) geos[`runner#${v}`] = (bq) => runnerVariantGeometry(bq, v);
 
     const crowdShadows = this.r.quality.crowdShadows && this.r.quality.shadowMap > 0;
-    for (const kind of Object.keys(geos) as EnemyKind[]) {
-      const geo = geos[kind](q);
+    for (const key of Object.keys(geos)) {
+      const kind = baseKind(key);
+      const geo = geos[key]!(q);
       // Boss/泰坦身上叠一层熔纹自发光——复用已经烘进顶点的磨损数据，让炭黑的
       // 甲壳在棱线处渗出橙红熔光，而不是靠底色本身撑"看起来很凶"
       // 通用材质默认的磨损/脏污颜色是偏暖的浅米色（给普通杂兵用的"露出底色"效果）。
@@ -286,10 +331,13 @@ export class GameView {
             : createCrowdMaterial();
       set.setPivots(geometryPivots(geo));
       this.matSets.push(set);
-      const batch = new CrowdBatch(geo, set.material, CROWD_CAPACITY[kind], set.depthMaterial);
+      // 变体分摊容量：四种尸群各占四分之一多一点，留一点余量防分布不均
+      const variants = kind === 'walker' ? ZOMBIE_VARIANTS : kind === 'runner' ? RUNNER_VARIANTS : 1;
+      const cap = Math.ceil(CROWD_CAPACITY[kind] / variants) + (variants > 1 ? 24 : 0);
+      const batch = new CrowdBatch(geo, set.material, cap, set.depthMaterial);
       // 大体型的怪和 Boss 永远投影，杂兵只在高画质档投
       batch.setCastShadow(this.r.quality.shadowMap > 0 && (crowdShadows || ENEMY_STATS[kind].scale >= 1.5));
-      this.batches.set(kind, batch);
+      this.batches.set(key, batch);
       this.scene.add(batch.mesh);
       this.tints.set(kind, new THREE.Color(ENEMY_STATS[kind].tint));
     }
@@ -560,6 +608,8 @@ export class GameView {
     }
     for (const b of this.blockMeshes) b.update();
 
+    // 每帧重置小事件的抖动配额
+    this.shakeBudget = 0.11;
     this.handleEvents(events, world);
 
     this.tracers.update(dt);
@@ -649,7 +699,7 @@ export class GameView {
     }
 
     for (const e of vis) {
-      const batch = this.batches.get(e.kind);
+      const batch = this.batches.get(batchKey(e));
       if (batch) this.addEnemy(batch, e, world.squad.z);
     }
 
@@ -796,6 +846,14 @@ export class GameView {
   }
 
   /** 路边的金币堆：慢慢自转 + 轻微起伏，捡到的（!alive）直接不再分配实例槽位，当场消失。 */
+  /** 高频小事件的抖动：从每帧配额里扣，扣完这一帧就不再抖。 */
+  private softPunch(amount: number): void {
+    const give = Math.min(amount, this.shakeBudget);
+    if (give <= 0) return;
+    this.shakeBudget -= give;
+    this.camera.punch(give);
+  }
+
   private syncPickups(world: World, dt: number): void {
     this.pickupSpin += dt;
     let n = 0;
@@ -959,7 +1017,7 @@ export class GameView {
           this.waves.spawn(ev.x!, ev.z!, 0.6, (ev.radius ?? 4.6) * 1.5, 0xffb257, 0.42);
           this.flashes.flash(ev.x!, 1.4, ev.z!, 0xff9838, 90, 0.22);
           this.decals.add('scorch', ev.x!, ev.z!, (ev.radius ?? 4.6) * 1.1, 0.34);
-          this.camera.punch(0.16);
+          this.softPunch(0.09);
           break;
         }
         case 'kill': {
@@ -977,7 +1035,7 @@ export class GameView {
           if (big) {
             this.gold.burst(ev.x!, 0.4, ev.z!, 4);
             this.gibs.burst(ev.x!, 0.9, ev.z!, 7);
-            this.camera.punch(0.08);
+            this.softPunch(0.05);
             this.waves.spawn(ev.x!, ev.z!, 0.3, 3.2, 0x8fbf4a, 0.34, 0.7);
           } else if (this.rng.next() < 0.06) {
             this.gold.burst(ev.x!, 0.3, ev.z!, 1);
@@ -1080,7 +1138,24 @@ export class GameView {
           });
           this.decals.add('ichor', ev.x!, ev.z!, (ev.radius ?? 3) * 1.5, 0.7);
           this.flashes.flash(ev.x!, 1.2, ev.z!, 0x9ce85a, 40, 0.2);
-          if ((ev.amount ?? 0) > 0) this.camera.punch(0.14);
+          if ((ev.amount ?? 0) > 0) this.softPunch(0.08);
+          break;
+        }
+        case 'bomberBlast': {
+          // 橙红的爆炸 + 一圈冲击波 + 地上的焦痕。
+          // 这一下必须比任何小怪的死亡都响亮——它是"你放它进来了"的惩罚。
+          this.sparks.burst(ev.x!, 0.5, ev.z!, {
+            count: 34, color: 0xffd48a, color2: 0x8a2a08, speed: [5, 16], size: [0.4, 1.2],
+            life: [0.25, 0.6], grow: 1.0, drag: 2.2, stretch: 2.2,
+          });
+          this.smoke.burst(ev.x!, 0.6, ev.z!, {
+            count: 10, color: 0x6a5040, color2: 0x241a14, speed: [1.5, 5], size: [1.0, 2.2],
+            life: [0.7, 1.4], grow: 2.6, drag: 1.8, lift: 1.6, fadeIn: 0.15,
+          });
+          this.waves.spawn(ev.x!, ev.z!, (ev.radius ?? 4) * 2.0, (ev.radius ?? 4) * 0.6, 0xffa040, 1.0, 0.55);
+          this.decals.add('scorch', ev.x!, ev.z!, (ev.radius ?? 4) * 1.4, 0.85);
+          this.flashes.flash(ev.x!, 1.4, ev.z!, 0xffa347, 90, 0.26);
+          this.softPunch(0.12);
           break;
         }
         case 'leaperJump': {
@@ -1097,7 +1172,7 @@ export class GameView {
             life: [0.2, 0.45], grow: 1.0, drag: 2.6, stretch: 2.0,
           });
           this.waves.spawn(ev.x!, ev.z!, 0.4, (ev.radius ?? 2.2) * 2.4, 0xffb257, 0.4, 1.0);
-          this.camera.punch(0.22);
+          this.softPunch(0.14);
           break;
         }
         case 'bossSpawn': {
@@ -1287,7 +1362,7 @@ export class GameView {
       shells: this.shells.count,
       bars: this.bars.mesh.count,
     };
-    for (const [kind, b] of this.batches) out[kind] = b.mesh.count;
+    for (const [key, b] of this.batches) out[key] = b.mesh.count;
     return out;
   }
 

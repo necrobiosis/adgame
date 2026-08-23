@@ -1,4 +1,4 @@
-/** 五个 Boss 的脸：把镜头怼到脸上，确认五官各不相同。 */
+/** 五个 Boss 的脸：从正面拉远，比较五只的整体剪影。 */
 import { chromium } from 'playwright';
 const SHOTS = process.env.SHOTS_DIR ?? './shots';
 const SAVE = '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{"squad":12,"damage":12,"fireRate":10,"cannon":6,"armor":10,"weapon":4,"slots":1},"loadout":["squad","damage","fireRate","weapon","cannon"],"bestTime":{},"muted":true}';
@@ -31,10 +31,10 @@ for (const lvl of [1, 2, 3, 4, 5]) {
     });
     if (ok) break;
   }
-  await page.evaluate(() => window.__game.inspect('boss', 16, 1.2, 3.14));
+  await page.evaluate(() => window.__game.inspect('boss', 30, 3.0, 0));
   await page.waitForTimeout(700);
   const name = await page.evaluate(() => window.__game.world.boss.name);
-  await page.screenshot({ path: `${SHOTS}/face-L${lvl}.png`, timeout: 120000 });
+  await page.screenshot({ path: `${SHOTS}/body-L${lvl}.png`, timeout: 120000 });
   console.log(`L${lvl} ${name}`);
   await page.close();
 }

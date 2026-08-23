@@ -70,9 +70,16 @@ function rollWave(rng: Rng, flavour: LaneFlavour, power: number, heavy: boolean)
     const walkers = Math.round((60 + power * 52) * k * (0.85 + rng.next() * 0.4));
     const runners = Math.round(walkers * (0.08 + rng.next() * 0.12));
     const groups: WaveGroup[] = [{ kind: 'walker', count: walkers }, { kind: 'runner', count: runners }];
+    // 幼体：尸潮车道的主要密度来源。数量大到只能靠射速和溅射清，
+    // 单只却弱到不构成威胁——"多"本身才是这条车道的问题。
+    groups.push({ kind: 'swarmling', count: Math.round(walkers * (0.22 + power * 0.05)) });
     // 后期尸潮里混一点会跳的，逼玩家不能只顾前排
     if (power >= 3 && rng.next() < 0.5) {
       groups.push({ kind: 'leaper', count: Math.round(4 + power * 2) });
+    }
+    // 自爆尸：混在人堆里走过来，看漏了就是一片人没了
+    if (power >= 2.5 && rng.next() < 0.55) {
+      groups.push({ kind: 'bomber', count: Math.round(1 + power * 0.7) });
     }
     return { groups, depth: 26 + power * 2 };
   }
@@ -88,6 +95,10 @@ function rollWave(rng: Rng, flavour: LaneFlavour, power: number, heavy: boolean)
     groups.push({ kind: 'spitter', count: Math.round(3 + power * 1.6) });
   } else {
     groups.push({ kind: 'screamer', count: Math.round(2 + power * 0.9) });
+  }
+  // 精英车道也要有一个"必须提前处理"的目标，否则它就只是一堵血墙
+  if (power >= 3 && rng.next() < 0.45) {
+    groups.push({ kind: 'bomber', count: Math.round(1 + power * 0.6) });
   }
   return { groups, depth: 16 + power };
 }

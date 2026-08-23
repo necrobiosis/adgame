@@ -37,6 +37,13 @@ const ENDLESS_HP_RAMP = 500;
 export interface RunOptions {
   levelId: number;
   upgrades: Readonly<Record<UpgradeId, number>>;
+  /**
+   * 这一局实际带上场的模块。
+   *
+   * 商店里买到的是"拥有"，这里列的才是"生效"。不传就当全部生效——
+   * 测试和老存档走这条路，行为和加装备位之前完全一致。
+   */
+  loadout?: readonly UpgradeId[];
   seed?: number;
 }
 
@@ -102,6 +109,12 @@ export class World {
    * 一轮比一轮硬的中 Boss 撑起节奏，必须能同时排队。
    */
   private pendingMidBosses: { hp: number; scale: number; name: string; z: number }[] = [];
+  /** 出征模块换算出来的四个局内系数（见构造函数）。 */
+  private readonly advanceMul: number;
+  private readonly goldMul: number;
+  private readonly strikeChargeMul: number;
+  private readonly strikeRadiusMul: number;
+
   private bossTriggered = false;
   private bossArenaTargetZ = 0;
   private nextId = 1;
@@ -113,14 +126,42 @@ export class World {
     this.boss = new BossController(this.rng);
     this.midBoss = new MidBossController();
 
-    const up = opts.upgrades;
+    // 只有带上场的模块算数。'slots' 是元升级，永远不进这个表。
+    const equipped = opts.loadout
+      ? new Set(opts.loadout.filter((id) => id !== 'slots'))
+      : null;
+    const up0 = opts.upgrades;
+    /** 某个模块这一局的实际等级：没带上场就是 0。 */
+    const lv = (id: Exclude<UpgradeId, 'slots'>): number =>
+      (equipped && !equipped.has(id) ? 0 : (up0[id] ?? 0));
+
+    const E = UPGRADE_EFFECT;
+    // 专精模块的代价在这里一次性结算：正面加在自己的轴上，负面乘在别人的轴上。
+    // 兵力不能被减到 1 以下——"带了三级重炮结果开局没人"不是取舍，是 bug。
+    const soldierPenalty = Math.max(0.3, 1 - lv('heavyGuns') * E.heavyGunsSoldierPenalty);
+    const soldiers = Math.max(
+      3,
+      Math.round(
+        (START.soldiers + lv('squad') * E.squadPerLevel + lv('horde') * E.hordeSoldiers) * soldierPenalty,
+      ),
+    );
+    const damageMul = (1 + lv('damage') * E.damagePerLevel)
+      * Math.max(0.4, 1 - lv('horde') * E.hordeDamagePenalty);
+    const hpMul = (1 + lv('armor') * E.armorPerLevel)
+      * Math.max(0.4, 1 - lv('vanguard') * E.vanguardHpPenalty);
+
+    this.advanceMul = 1 + lv('vanguard') * E.vanguardSpeed;
+    this.goldMul = 1 + lv('scavenger') * E.scavengerGold;
+    this.strikeChargeMul = 1 + lv('strikeSpec') * E.strikeCharge;
+    this.strikeRadiusMul = 1 + lv('strikeSpec') * E.strikeRadius;
+
     this.squad = new Squad({
-      soldiers: START.soldiers + (up.squad ?? 0) * UPGRADE_EFFECT.squadPerLevel,
-      cannons: START.cannons + (up.cannon ?? 0),
-      weaponLevel: START.weaponLevel + (up.weapon ?? 0),
-      damageMul: 1 + (up.damage ?? 0) * UPGRADE_EFFECT.damagePerLevel,
-      fireRateMul: 1 + (up.fireRate ?? 0) * UPGRADE_EFFECT.fireRatePerLevel,
-      hpMul: 1 + (up.armor ?? 0) * UPGRADE_EFFECT.armorPerLevel,
+      soldiers,
+      cannons: START.cannons + lv('cannon') + lv('heavyGuns') * E.heavyGunsCannon,
+      weaponLevel: START.weaponLevel + lv('weapon'),
+      damageMul,
+      fireRateMul: 1 + lv('fireRate') * E.fireRatePerLevel,
+      hpMul,
     }, this.rng);
 
     this.buildTrack();
@@ -326,7 +367,7 @@ export class World {
         MELEE.minAdvanceFactor,
         1 / (1 + this.enemies.contactCount * MELEE.advanceDrag),
       );
-      this.squad.z += ADVANCE_SPEED * drag * advanceFactor * dt;
+      this.squad.z += ADVANCE_SPEED * this.advanceMul * drag * advanceFactor * dt;
       if (this.bossTriggered) this.squad.z = Math.min(this.squad.z, this.bossArenaTargetZ);
     }
     this.squad.layout();
@@ -367,16 +408,19 @@ export class World {
       this.stats.kills++;
       // 打得越凶技能来得越快，鼓励主动接战而不是龟着等冷却
       if (this.strikeCharge < 1) {
-        this.strikeCharge = Math.min(1, this.strikeCharge + AIRSTRIKE.chargePerKill / AIRSTRIKE.chargeSeconds);
+        this.strikeCharge = Math.min(1, this.strikeCharge + this.strikeChargeMul * AIRSTRIKE.chargePerKill / AIRSTRIKE.chargeSeconds);
       }
     }
-    this.gold += gold;
-    this.stats.goldEarned += gold;
+    // 拾荒专精只影响局内进账，不影响关卡结算奖励——否则它会变成
+    // "反正最后都能赚回来"的无脑必带
+    const earned = Math.round(gold * this.goldMul);
+    this.gold += earned;
+    this.stats.goldEarned += earned;
     this.stats.peakSoldiers = Math.max(this.stats.peakSoldiers, this.squad.soldierCount);
 
     // ── 空袭 ────────────────────────────────────────────────
     if (this.strikeCharge < 1) {
-      this.strikeCharge = Math.min(1, this.strikeCharge + dt / AIRSTRIKE.chargeSeconds);
+      this.strikeCharge = Math.min(1, this.strikeCharge + this.strikeChargeMul * dt / AIRSTRIKE.chargeSeconds);
     }
     this.updateBombs(dt, out);
 
@@ -418,7 +462,8 @@ export class World {
 
   private updateBombs(dt: number, out: SimEvent[]): void {
     if (this.pendingBombs.length === 0) return;
-    const r2 = AIRSTRIKE.radius * AIRSTRIKE.radius;
+    const radius = AIRSTRIKE.radius * this.strikeRadiusMul;
+    const r2 = radius * radius;
     for (let i = this.pendingBombs.length - 1; i >= 0; i--) {
       const b = this.pendingBombs[i]!;
       b.t -= dt;
@@ -435,9 +480,9 @@ export class World {
         // 算溅射伤害，所以重甲的子弹减免挡不住空袭
         gold += this.enemies.damage(e, AIRSTRIKE.damage * falloff, out, true);
       }
-      this.gold += gold;
+      this.gold += Math.round(gold * this.goldMul);
       this.stats.goldEarned += gold;
-      out.push({ type: 'strikeImpact', x: b.x, y: 0.3, z: b.z, radius: AIRSTRIKE.radius });
+      out.push({ type: 'strikeImpact', x: b.x, y: 0.3, z: b.z, radius });
     }
   }
 
@@ -460,7 +505,7 @@ export class World {
       }
       if (Math.abs(p.x - this.squad.x) > reach) continue;
       p.alive = false;
-      this.gold += p.amount;
+      this.gold += Math.round(p.amount * this.goldMul);
       this.stats.goldEarned += p.amount;
       out.push({ type: 'goldPickup', x: p.x, y: 0.6, z: p.z, amount: p.amount });
     }

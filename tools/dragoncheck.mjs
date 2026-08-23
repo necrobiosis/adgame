@@ -3,7 +3,7 @@ const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromi
 const page = await browser.newPage({ viewport: { width: 460, height: 900 } });
 await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
 await page.waitForTimeout(1500);
-const save = '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{},"bestTime":{},"muted":true}';
+const save = '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{,"slots":1},"loadout":["squad","damage","fireRate","weapon","cannon"],"bestTime":{},"muted":true}';
 await page.evaluate((s) => localStorage.setItem('adgame.save.v1', s), save);
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(1500);

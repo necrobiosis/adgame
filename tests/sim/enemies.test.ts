@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LEAPER, SPITTER, ENEMY_STATS } from '../../src/config/balance';
+import { BOMBER, LEAPER, SPITTER, ENEMY_STATS } from '../../src/config/balance';
 import { EnemyPool } from '../../src/sim/Enemies';
 import { Squad } from '../../src/sim/Squad';
 import { Rng } from '../../src/core/Rng';
@@ -117,5 +117,51 @@ describe('跳跃者', () => {
     }
     expect(maxAir, '跳跃过程中应当真的离地').toBeGreaterThan(2);
     expect(e.airY ?? 0, '落地后应当回到地面').toBeLessThan(0.01);
+  });
+});
+
+describe('自爆尸', () => {
+  it('走到方阵跟前会自爆，一次带走一片人（前排挡不住它）', () => {
+    const squad = makeSquad(60);
+    const pool = new EnemyPool(new Rng(3));
+    // 直接摆在方阵正前方一点点的地方，省掉走路那段
+    const e = pool.spawn('bomber', squad.x, squad.z + BOMBER.fuseRange + 0.5);
+    e.laneOffset = 0;
+    const before = squad.soldierCount;
+    const evs = run(pool, squad, 1.5);
+    expect(evs.some((v) => v.type === 'bomberBlast'), '自爆尸没有引爆').toBe(true);
+    expect(squad.soldierCount, '自爆没有造成任何伤亡').toBeLessThan(before);
+    expect(e.alive, '炸完自己应该也没了').toBe(false);
+  });
+
+  it('在射程外被打死就不会炸——提前处理掉是有回报的', () => {
+    const squad = makeSquad(60);
+    const pool = new EnemyPool(new Rng(3));
+    const e = pool.spawn('bomber', squad.x, squad.z + 30);
+    const out: SimEvent[] = [];
+    pool.damage(e, 99999, out);
+    const before = squad.soldierCount;
+    const evs = run(pool, squad, 2);
+    expect(evs.some((v) => v.type === 'bomberBlast'), '被打死的自爆尸不该还能炸').toBe(false);
+    expect(squad.soldierCount).toBe(before);
+  });
+});
+
+describe('幼体', () => {
+  it('比疾行者还快、一枪就死——密度才是它的威胁', () => {
+    const sw = ENEMY_STATS.swarmling;
+    expect(sw.speed).toBeGreaterThan(ENEMY_STATS.runner.speed);
+    expect(sw.hp).toBeLessThan(ENEMY_STATS.walker.hp);
+    expect(sw.scale).toBeLessThan(0.7);
+  });
+});
+
+describe('怪物种类', () => {
+  it('每一种怪都有自己的一套数值，没有两种是同一份配置', () => {
+    // "多样"不能靠改个名字。这里比的是实际影响手感的四个字段。
+    const sigs = Object.values(ENEMY_STATS).map(
+      (s) => `${s.hp}|${s.speed}|${s.damage}|${s.scale}`,
+    );
+    expect(new Set(sigs).size, `有怪物共用同一份数值：${sigs.join(' ')}`).toBe(sigs.length);
   });
 });

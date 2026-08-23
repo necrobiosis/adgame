@@ -167,6 +167,7 @@ export type SimEventType =
   | 'spitterHit'        // 酸液落地
   | 'leaperJump'        // 跳跃者起跳
   | 'leaperLand'        // 跳跃者落进阵型
+  | 'bomberBlast'       // 自爆尸在方阵里炸开
   | 'strikeCall'        // 呼叫空袭
   | 'strikeImpact'      // 空袭落弹
   | 'win'

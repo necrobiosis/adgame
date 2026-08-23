@@ -3,6 +3,7 @@ import { LEVELS } from '../../src/config/levels';
 import type { UpgradeId } from '../../src/config/balance';
 import { World } from '../../src/sim/World';
 import { LANE_SIGN } from '../../src/sim/lanes';
+import { BAD_LOADOUT, BEST_LOADOUT, LEVELS_MAX_UPGRADES } from './fixtures';
 
 /**
  * 策略深度的回归测试。
@@ -15,15 +16,13 @@ import { LANE_SIGN } from '../../src/sim/lanes';
  * 玩家实际上都不需要思考。
  */
 
-const MAX: Record<UpgradeId, number> = {
-  squad: 12, damage: 12, fireRate: 10, cannon: 6, armor: 10, weapon: 3,
-};
+const MAX = LEVELS_MAX_UPGRADES;
 
 type Policy = (w: World) => 'left' | 'right';
 
 /** 按固定策略跑一整局。 */
 function play(levelId: number, upgrades: Record<UpgradeId, number>, pick: Policy, seed = 3) {
-  const w = new World({ levelId, upgrades, seed });
+  const w = new World({ levelId, upgrades, loadout: BEST_LOADOUT, seed });
   const dt = 1 / 60;
   let t = 0;
   while (w.phase === 'running' && t < 240) {
@@ -83,11 +82,50 @@ describe('策略深度', () => {
     expect(outcomes.size, '第五关不管怎么选门结果都一样，说明门不影响胜负').toBeGreaterThan(1);
   });
 
+  it('商店买满也不等于稳赢：带错装备照样打不过', () => {
+    // 这条锁住的是整个 meta 层的设计意图。之前商店一买满，每一局开场就已经
+    // 赢了——岔路口选什么都无所谓，关卡里所有的取舍瞬间作废。
+    // 加了出征装备位之后，"拥有"和"生效"被拆开：买满买的是**更多可能性**，
+    // 每一局仍然要在开打之前做一次真实的取舍。
+    for (const lvl of [3, 4, 5]) {
+      const w = new World({ levelId: lvl, upgrades: MAX, loadout: BAD_LOADOUT, seed: 3 });
+      const dt = 1 / 60;
+      let t = 0;
+      while (w.phase === 'running' && t < 240) {
+        w.steer = 0;
+        w.step(dt);
+        w.drainEvents();
+        t += dt;
+      }
+      expect(w.phase, `第 ${lvl} 关：满配 + 一套废装备居然通关了`).not.toBe('won');
+    }
+  });
+
+  it('同一份满配存档，换一套出征装备结果就不一样', () => {
+    // 同样的升级、同样的种子、同样的操控——唯一的变量是带了哪几个模块。
+    // 两套装备打出不同结果，才说明"出征前选什么"是一个真实的决策点。
+    const run = (loadout: readonly UpgradeId[]) => {
+      const w = new World({ levelId: 3, upgrades: MAX, loadout, seed: 3 });
+      const dt = 1 / 60;
+      let t = 0;
+      while (w.phase === 'running' && t < 240) {
+        const next = w.gates.find((g) => !g.taken && g.z > w.squad.z);
+        const want = LANE_SIGN[next ? 'left' : 'right'] * 6;
+        w.steer = Math.abs(want - w.squad.x) > 0.3 ? Math.sign(want - w.squad.x) : 0;
+        w.step(dt);
+        w.drainEvents();
+        t += dt;
+      }
+      return w.phase;
+    };
+    expect(run(BEST_LOADOUT)).not.toBe(run(BAD_LOADOUT));
+  });
+
   it('两侧永远是不同类型的增益', () => {
     // 都给兵力的两个门不构成选择。随机生成必须保证这一条。
     for (let seed = 1; seed <= 30; seed++) {
       for (const lvl of LEVELS) {
-        const w = new World({ levelId: lvl.id, upgrades: MAX, seed });
+        const w = new World({ levelId: lvl.id, upgrades: MAX, loadout: BEST_LOADOUT, seed });
         for (const g of w.gates) {
           expect(
             g.left.gate.type,
@@ -101,7 +139,7 @@ describe('策略深度', () => {
   it('每一局掷出来的岔路都不一样（roguelike 的随机性真的生效）', () => {
     // 同一关不同种子，岔路组合应当明显不同；否则"随机"只是个说法
     const fingerprint = (seed: number) =>
-      new World({ levelId: 3, upgrades: MAX, seed }).gates
+      new World({ levelId: 3, upgrades: MAX, loadout: BEST_LOADOUT, seed }).gates
         .map((g) => `${g.left.gate.type}${g.left.gate.value}/${g.right.gate.type}${g.right.gate.value}`)
         .join(',');
     const seen = new Set<string>();
@@ -117,7 +155,7 @@ describe('策略深度', () => {
     let leftStrong = 0;
     let total = 0;
     for (let seed = 1; seed <= 60; seed++) {
-      const w = new World({ levelId: 4, upgrades: MAX, seed });
+      const w = new World({ levelId: 4, upgrades: MAX, loadout: BEST_LOADOUT, seed });
       for (const g of w.gates) {
         const l = strength(g.left.gate.type);
         const r = strength(g.right.gate.type);

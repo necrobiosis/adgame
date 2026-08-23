@@ -4,7 +4,7 @@
  */
 import { chromium } from 'playwright';
 const SHOTS = process.env.SHOTS_DIR ?? './shots';
-const SAVE = '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{"squad":12,"damage":12,"fireRate":10,"cannon":6,"armor":10,"weapon":3},"bestTime":{},"muted":true}';
+const SAVE = '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{"squad":12,"damage":12,"fireRate":10,"cannon":6,"armor":10,"weapon":4,"slots":1},"loadout":["squad","damage","fireRate","weapon","cannon"],"bestTime":{},"muted":true}';
 
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium',

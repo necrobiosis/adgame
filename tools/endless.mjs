@@ -10,7 +10,7 @@ page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text().slice(0
 await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
 await page.waitForTimeout(1000);
 await page.evaluate(() => localStorage.setItem('adgame.save.v1',
-  '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{"squad":10,"damage":8,"fireRate":6,"cannon":4,"armor":8,"weapon":2},"bestTime":{},"muted":true}'));
+  '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{"squad":10,"damage":8,"fireRate":6,"cannon":4,"armor":8,"weapon":2,"slots":1},"loadout":["squad","damage","fireRate","weapon","cannon"],"bestTime":{},"muted":true}'));
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(1400);
 const hasBtn = await page.evaluate(() => !!document.querySelector('[data-endless]'));

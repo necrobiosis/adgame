@@ -21,19 +21,27 @@
 // ── 参数表 ──────────────────────────────────────────────────────
 
 /** 六级武器的枪声配方。tier 5 走合成器 zap，不用噪声。 */
+/**
+ * 八级枪声。每一级换的不只是音高——瞬态锐度、主体共振、低频分量都在动，
+ * 目的是玩家闭着眼也能听出"我换枪了"。synth 档走纯合成器分支。
+ */
 const GUN_TIERS = [
-  // 手枪：脆、干、短
-  { crack: 4200, crackGain: 0.5, body: 760, bodyQ: 1.1, bodyDur: 0.075, sub: 150, subDur: 0.05, gain: 0.5 },
-  // 冲锋枪：更紧更高，尾巴更短
-  { crack: 5200, crackGain: 0.42, body: 980, bodyQ: 1.4, bodyDur: 0.055, sub: 165, subDur: 0.04, gain: 0.42 },
-  // 突击步枪：中庸，有一点胸腔感
-  { crack: 3600, crackGain: 0.55, body: 640, bodyQ: 1.0, bodyDur: 0.095, sub: 120, subDur: 0.07, gain: 0.55 },
-  // 轻机枪：低频明显更重
-  { crack: 3000, crackGain: 0.6, body: 480, bodyQ: 0.9, bodyDur: 0.13, sub: 92, subDur: 0.1, gain: 0.62 },
-  // 加特林：短促密集，偏"锯"而不是"爆"
-  { crack: 6000, crackGain: 0.34, body: 1250, bodyQ: 2.2, bodyDur: 0.042, sub: 190, subDur: 0.03, gain: 0.36 },
-  // 等离子：synth 标记，下面单独分支
-  { crack: 0, crackGain: 0, body: 0, bodyQ: 0, bodyDur: 0, sub: 0, subDur: 0, gain: 0.5 },
+  // 0 手枪：脆、干、短
+  { crack: 4200, crackGain: 0.5, body: 760, bodyQ: 1.1, bodyDur: 0.075, sub: 150, subDur: 0.05, gain: 0.5, synth: 0 },
+  // 1 霰弹枪：低频极重的一声闷炸，瞬态反而糊——散射的质感
+  { crack: 2200, crackGain: 0.62, body: 380, bodyQ: 0.55, bodyDur: 0.19, sub: 74, subDur: 0.15, gain: 0.72, synth: 0 },
+  // 2 冲锋枪：更紧更高，尾巴更短
+  { crack: 5200, crackGain: 0.42, body: 980, bodyQ: 1.4, bodyDur: 0.055, sub: 165, subDur: 0.04, gain: 0.42, synth: 0 },
+  // 3 突击步枪：中庸，有一点胸腔感
+  { crack: 3600, crackGain: 0.55, body: 640, bodyQ: 1.0, bodyDur: 0.095, sub: 120, subDur: 0.07, gain: 0.55, synth: 0 },
+  // 4 轻机枪：低频明显更重
+  { crack: 3000, crackGain: 0.6, body: 480, bodyQ: 0.9, bodyDur: 0.13, sub: 92, subDur: 0.1, gain: 0.62, synth: 0 },
+  // 5 加特林：短促密集，偏"锯"而不是"爆"
+  { crack: 6000, crackGain: 0.34, body: 1250, bodyQ: 2.2, bodyDur: 0.042, sub: 190, subDur: 0.03, gain: 0.36, synth: 0 },
+  // 6 电磁炮：合成器分支 1 —— 蓄能后的一声撕裂
+  { crack: 0, crackGain: 0, body: 0, bodyQ: 0, bodyDur: 0, sub: 0, subDur: 0, gain: 0.5, synth: 1 },
+  // 7 湮灭者：合成器分支 2 —— 塌缩式的下扫
+  { crack: 0, crackGain: 0, body: 0, bodyQ: 0, bodyDur: 0, sub: 0, subDur: 0, gain: 0.5, synth: 2 },
 ] as const;
 
 const REVERB_SECONDS = 2.4;
@@ -173,14 +181,22 @@ export class Audio {
     this.lastShot = now;
     this.shotBudget--;
 
-    const tier = GUN_TIERS[Math.max(0, Math.min(5, weaponLevel))]!;
+    const tier = GUN_TIERS[Math.max(0, Math.min(GUN_TIERS.length - 1, weaponLevel))]!;
     const jit = 1 + (Math.random() - 0.5) * 0.14;
 
-    if (weaponLevel >= 5) {
-      // 等离子：纯合成器，一声下扫的 zap + 一层亮的谐波，完全不用噪声
-      this.tone({ type: 'sawtooth', f0: 2400 * jit, f1: 260, dur: 0.16, gain: 0.3, pan, send: 0.3, attack: 0.002 });
-      this.tone({ type: 'square', f0: 1200 * jit, f1: 180, dur: 0.11, gain: 0.14, pan, send: 0.2 });
-      this.noise({ f0: 5200, f1: 1400, dur: 0.05, gain: 0.16, q: 1.2, pan, bank: 0, send: 0.2 });
+    if (tier.synth === 1) {
+      // 电磁炮：先一声极短的线圈蓄能，再一道向上撕开的高频轨——听起来"贵"
+      this.tone({ type: 'square', f0: 320, f1: 1900 * jit, dur: 0.07, gain: 0.1, pan, send: 0.18 });
+      this.tone({ type: 'sawtooth', f0: 900 * jit, f1: 5200, dur: 0.13, gain: 0.26, pan, send: 0.36, attack: 0.004 });
+      this.noise({ type: 'highpass', f0: 3800, f1: 9000, dur: 0.11, gain: 0.2, q: 0.8, pan, bank: 0, send: 0.3 });
+      this.tone({ f0: 120, f1: 44, dur: 0.16, gain: 0.24, pan });
+      return;
+    }
+    if (tier.synth === 2) {
+      // 湮灭者：反过来——高频塌缩进一个低频的洞里，尾巴长且脏
+      this.tone({ type: 'sawtooth', f0: 3200 * jit, f1: 90, dur: 0.24, gain: 0.3, pan, send: 0.42, attack: 0.002 });
+      this.tone({ type: 'square', f0: 1500 * jit, f1: 70, dur: 0.18, gain: 0.15, pan, send: 0.24 });
+      this.noise({ f0: 4200, f1: 260, dur: 0.16, gain: 0.2, q: 1.6, pan, bank: 2, send: 0.34 });
       return;
     }
 

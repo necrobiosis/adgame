@@ -7,7 +7,7 @@ page.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text().slice(0, 400)); });
 await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
 await page.waitForTimeout(1500);
-const save = process.argv[3] ?? '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{"squad":8,"damage":8,"fireRate":6,"cannon":4,"armor":6,"weapon":2},"bestTime":{},"muted":true}';
+const save = process.argv[3] ?? '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{"squad":8,"damage":8,"fireRate":6,"cannon":4,"armor":6,"weapon":2,"slots":1},"loadout":["squad","damage","fireRate","weapon","cannon"],"bestTime":{},"muted":true}';
 await page.evaluate((s) => localStorage.setItem('adgame.save.v1', s), save);
 if (process.env.QUALITY) await page.evaluate((q) => localStorage.setItem('adgame.quality', q), process.env.QUALITY);
 await page.reload({ waitUntil: 'networkidle' });

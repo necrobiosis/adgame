@@ -265,7 +265,10 @@ const LEVEL_5: LevelDef = {
     { t: 'run', len: 67 },
     { t: 'surge', seconds: 18, pulses: 9, wave: elite([{ kind: 'brute', count: 1 }, { kind: 'walker', count: 30 }, { kind: 'runner', count: 6 }], 32) },
     { t: 'run', len: 55 },
-    { t: 'boss', hp: 420000, scale: 1.55, name: '终末之主', kind: 'ender' },
+    // 1.55 的体型在竖屏里根本框不下——镜头只能拍到胸口，头、背刃、破布
+    // 全在画面外，"长得不一样"这件事等于白做。1.35 仍然是全场最大的一只
+    // （建模身高 3.5 米，比前面几只高出一截），但整个剪影进得了画。
+    { t: 'boss', hp: 420000, scale: 1.35, name: '终末之主', kind: 'ender' },
   ],
 };
 

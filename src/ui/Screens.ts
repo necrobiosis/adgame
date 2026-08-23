@@ -1,6 +1,6 @@
-import { UPGRADES } from '../config/balance';
+import { UPGRADES, type UpgradeId } from '../config/balance';
 import { ENDLESS_ID, LEVELS } from '../config/levels';
-import { buyUpgrade, nextCost, type SaveData } from '../meta/Save';
+import { buyUpgrade, loadoutFull, nextCost, slotCount, toggleLoadout, type SaveData } from '../meta/Save';
 import type { RunStats } from '../sim/World';
 
 const h = (html: string): HTMLElement => {
@@ -77,6 +77,7 @@ export class Screens {
         <div class="title">末日生存</div>
         <div class="subtitle">尸潮防线</div>
         <div class="stat gold" style="align-self:center;margin-bottom:6px"><div class="dot">$</div><div class="val">${this.save.gold}</div></div>
+        ${this.loadoutStrip()}
         <div class="section">选择关卡</div>
         <div class="levels"></div>
         <button class="btn endless" data-endless>
@@ -94,7 +95,9 @@ export class Screens {
           每道门是<b>二选一</b>：门上写着给什么，门顶写着<b>前方是什么怪</b>。<br>
           <b>蜂群</b>要靠大炮的溅射和人海去扛，<b>精英</b>要靠武器等级的单体高伤。<br>
           后排士兵的射界被前排挡住，火力会衰减 ——
-          <b>堆人头买的是生存，换武器买的才是输出</b>。
+          <b>堆人头买的是生存，换武器买的才是输出</b>。<br>
+          兵工厂里买到的模块，每一局<b>只能带 ${slotCount(this.save)} 个上场</b> ——
+          买满不等于全带，出征前先想清楚这一趟要什么。
         </div>
       </div>
     `);
@@ -140,6 +143,25 @@ export class Screens {
     });
   }
 
+  /**
+   * 主菜单上的出征装备一览。
+   *
+   * 装备位是开打之前唯一的决策点，藏在商店里玩家根本不会意识到它存在——
+   * 必须在按下"开始"的那一屏上就看得见。
+   */
+  private loadoutStrip(): string {
+    const slots = slotCount(this.save);
+    const names = this.save.loadout.map((id) => UPGRADES.find((u) => u.id === id)?.name ?? id);
+    const chips = Array.from({ length: slots }, (_, i) =>
+      names[i]
+        ? `<div class="chip on">${names[i]}</div>`
+        : '<div class="chip">空位</div>').join('');
+    return `
+      <div class="section">出征装备 ${names.length}/${slots}</div>
+      <div class="loadout-strip" data-shop>${chips}</div>
+    `;
+  }
+
   // ── 商店 ───────────────────────────────────────────────────
 
   showShop(): void {
@@ -158,30 +180,68 @@ export class Screens {
     const render = () => {
       items.replaceChildren();
       (el.querySelector('[data-gold]') as HTMLElement).textContent = String(this.save.gold);
+
+      // 装备位：整个商店最重要的一行。买满不等于全带，玩家必须在这里做取舍。
+      const slots = slotCount(this.save);
+      const used = this.save.loadout.length;
+      const dots = Array.from({ length: slots }, (_, i) => `<div class="slot ${i < used ? 'on' : ''}"></div>`).join('');
+      items.appendChild(h(`
+        <div class="slots-bar">
+          <div class="k">出征装备位</div>
+          ${dots}
+          <div class="note">${used}/${slots} · 只有装上的模块这一局才生效</div>
+        </div>
+      `));
+
+      let group = '';
       for (const def of UPGRADES) {
+        const g = def.passive ? '元升级' : def.drawback ? '专精模块 · 有代价' : '基础模块';
+        if (g !== group) {
+          group = g;
+          items.appendChild(h(`<div class="shop-group">${g}</div>`));
+        }
         const lv = this.save.upgrades[def.id] ?? 0;
         const cost = nextCost(def.id, this.save);
         const maxed = cost === null;
         const afford = !maxed && this.save.gold >= cost;
+        const equipped = this.save.loadout.includes(def.id);
+        const canEquip = !def.passive && lv > 0 && (equipped || !loadoutFull(this.save));
         const pips = Array.from({ length: def.maxLevel }, (_, i) => `<div class="pip ${i < lv ? 'on' : ''}"></div>`).join('');
         const row = h(`
-          <div class="shop-item">
+          <div class="shop-item ${equipped ? 'equipped' : ''}">
             <div class="info">
               <div class="name">${def.name} <span style="color:var(--dim);font-weight:600">Lv.${lv}/${def.maxLevel}</span></div>
               <div class="desc">${def.desc}</div>
+              ${def.drawback ? `<div class="cost">代价：${def.drawback}</div>` : ''}
               <div class="pips">${pips}</div>
             </div>
-            <button class="btn buy ${afford ? 'gold' : ''}" ${maxed || !afford ? 'disabled' : ''} data-buy="${def.id}">
-              ${maxed ? '已满级' : `$ ${cost}`}
-            </button>
+            <div class="col">
+              <button class="btn buy ${afford ? 'gold' : ''}" ${maxed || !afford ? 'disabled' : ''} data-buy="${def.id}">
+                ${maxed ? '已满级' : `$ ${cost}`}
+              </button>
+              ${def.passive
+                ? '<button class="equip" disabled>常驻</button>'
+                : `<button class="equip ${equipped ? 'on' : ''}" ${canEquip ? '' : 'disabled'} data-equip="${def.id}">
+                     ${equipped ? '已装备' : lv <= 0 ? '未拥有' : canEquip ? '装备' : '位子已满'}
+                   </button>`}
+            </div>
           </div>
         `);
         items.appendChild(row);
       }
       items.querySelectorAll('[data-buy]').forEach((n) => {
         n.addEventListener('click', () => {
-          const id = (n as HTMLElement).dataset.buy as (typeof UPGRADES)[number]['id'];
+          const id = (n as HTMLElement).dataset.buy as UpgradeId;
           if (buyUpgrade(id, this.save)) {
+            this.actions.click();
+            render();
+          }
+        });
+      });
+      items.querySelectorAll('[data-equip]').forEach((n) => {
+        n.addEventListener('click', () => {
+          const id = (n as HTMLElement).dataset.equip as UpgradeId;
+          if (toggleLoadout(id, this.save)) {
             this.actions.click();
             render();
           }

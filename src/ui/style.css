@@ -409,6 +409,44 @@ html, body {
 .shop-item .pip { width: 12px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.15); }
 .shop-item .pip.on { background: var(--blue); }
 .shop-item .buy { flex: none; min-width: 84px; padding: 9px 10px; font-size: 13px; }
+.loadout-strip {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; cursor: pointer;
+}
+.loadout-strip .chip {
+  padding: 6px 10px; border-radius: 9px; font-size: 12px; font-weight: 700;
+  border: 1px dashed var(--stroke); color: var(--dim);
+}
+.loadout-strip .chip.on {
+  border: 1px solid var(--blue); border-style: solid;
+  background: rgba(58,124,255,0.14); color: var(--ink);
+}
+
+.shop-item .cost { font-size: 11px; color: var(--red); margin-top: 2px; }
+.shop-item.equipped { border-color: var(--blue); background: rgba(58,124,255,0.10); }
+.shop-item .col { flex: none; display: flex; flex-direction: column; gap: 5px; align-items: stretch; }
+.shop-item .equip {
+  min-width: 84px; padding: 6px 10px; font-size: 12px; font-weight: 700;
+  border-radius: 9px; border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.06); color: var(--ink); cursor: pointer;
+}
+.shop-item .equip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.shop-item .equip:disabled { opacity: 0.35; cursor: default; }
+
+/* 装备位计数条：商店最重要的一行信息——你拥有多少不重要，能带几个才重要 */
+.slots-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; margin-bottom: 12px;
+  border: 1px solid var(--blue); border-radius: 12px;
+  background: rgba(58,124,255,0.10);
+}
+.slots-bar .k { font-size: 12px; font-weight: 700; }
+.slots-bar .slot {
+  flex: none; width: 22px; height: 22px; border-radius: 6px;
+  border: 1px solid var(--stroke); background: rgba(255,255,255,0.06);
+}
+.slots-bar .slot.on { background: var(--blue); border-color: var(--blue); }
+.slots-bar .note { margin-left: auto; font-size: 11px; color: var(--dim); }
+.shop-group { font-size: 11px; color: var(--dim); font-weight: 700; margin: 12px 2px 6px; letter-spacing: 1px; }
 
 .result-title { font-size: 40px; font-weight: 900; text-align: center; letter-spacing: 6px; margin: 26px 0 6px; }
 .result-title.win { color: var(--green); text-shadow: 0 0 26px rgba(53,214,122,0.45); }

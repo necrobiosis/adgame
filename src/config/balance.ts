@@ -57,13 +57,25 @@ export interface WeaponTier {
   readonly pellets: number;
 }
 
+/**
+ * 八级武器。
+ *
+ * 之前六级全是 `pellets: 1`，差别只有伤害和射速在单调上涨——升级读起来
+ * 就是"数字变大"，手感上没有换过枪。现在每一级都有自己的性格：霰弹是
+ * 多弹丸的近距清场，加特林是极高射速的持续输出，电磁炮射程最远但慢，
+ * 湮灭者是终极的高伤慢速。同一个 DPS 在不同射程和节奏下完全是两种打法。
+ */
 export const WEAPON_TIERS: readonly WeaponTier[] = [
   { name: '手枪',     damage: 9,  fireRate: 3.4,  range: 26, tracer: 0xffe08a, pellets: 1 },
-  { name: '冲锋枪',   damage: 11, fireRate: 6.0,  range: 28, tracer: 0xffd166, pellets: 1 },
-  { name: '突击步枪', damage: 17, fireRate: 6.5,  range: 31, tracer: 0xffc14d, pellets: 1 },
-  { name: '轻机枪',   damage: 24, fireRate: 8.0,  range: 33, tracer: 0xffa62b, pellets: 1 },
-  { name: '加特林',   damage: 30, fireRate: 12.0, range: 35, tracer: 0xff8c1a, pellets: 1 },
-  { name: '等离子枪', damage: 62, fireRate: 10.0, range: 39, tracer: 0x66e0ff, pellets: 1 },
+  // 霰弹枪：一次打出四颗弹丸，射程最短——贴脸清杂兵极强，打精英很吃力
+  { name: '霰弹枪',   damage: 8,  fireRate: 2.3,  range: 23, tracer: 0xffcf7a, pellets: 4 },
+  { name: '冲锋枪',   damage: 13, fireRate: 6.0,  range: 28, tracer: 0xffd166, pellets: 1 },
+  { name: '突击步枪', damage: 18, fireRate: 6.5,  range: 31, tracer: 0xffc14d, pellets: 1 },
+  { name: '轻机枪',   damage: 25, fireRate: 8.0,  range: 33, tracer: 0xffa62b, pellets: 1 },
+  { name: '加特林',   damage: 28, fireRate: 13.0, range: 34, tracer: 0xff8c1a, pellets: 1 },
+  // 电磁炮：射程碾压一切，射速很慢——离得老远就开始削，尸潮走到跟前已经少一层
+  { name: '电磁炮',   damage: 150, fireRate: 3.4, range: 52, tracer: 0x9fd8ff, pellets: 1 },
+  { name: '湮灭者',   damage: 46, fireRate: 8.0,  range: 42, tracer: 0xc9a8ff, pellets: 2 },
 ];
 
 export const MAX_WEAPON_LEVEL = WEAPON_TIERS.length - 1;
@@ -148,7 +160,10 @@ export type EnemyKind =
   | 'walker' | 'runner' | 'screamer' | 'brute' | 'titan' | 'midboss' | 'boss'
   // ↓ 行为上真正不同的三种。之前所有怪共用同一套"走过来打前排"的例程，
   //   疾行者和普通尸的区别只有血量和速度；这三种各自攻击当前同质化的一个轴。
-  | 'spitter' | 'leaper' | 'armored';
+  | 'spitter' | 'leaper' | 'armored'
+  // ↓ 再补两种，把"尸潮"这个词真正撑起来：一种小到只能靠射速清，
+  //   一种大到不能让它走到跟前。
+  | 'swarmling' | 'bomber';
 
 export interface EnemyStats {
   readonly kind: EnemyKind;
@@ -205,7 +220,28 @@ export const ENEMY_STATS: Record<EnemyKind, EnemyStats> = {
   leaper:   { kind: 'leaper',   label: '跳跃者', hp: 270,  speed: 5.4,  damage: 14, scale: 1.0,  gold: 7,   tint: 0xd0a05c, showHealthBar: true,  sweep: 1, scaleExp: 0.8 },
   // 重甲尸：子弹打不动，必须靠火炮溅射。
   armored:  { kind: 'armored',  label: '重甲尸', hp: 900,  speed: 2.1,  damage: 26, scale: 1.5,  gold: 26,  tint: 0x8d99a6, showHealthBar: true,  sweep: 2, scaleExp: 0.6, bulletResist: 0.82 },
+  // 幼体：只有半人高、跑得比疾行者还快、一枪一个。单只没有威胁，
+  // 但它们永远是成百上千地来——这是"射速"这条线唯一真正的用武之地，
+  // 也是尸潮之所以叫尸潮的原因。
+  swarmling: { kind: 'swarmling', label: '幼体', hp: 6, speed: 7.8, damage: 3, scale: 0.55, gold: 1, tint: 0xa8b894, showHealthBar: false, sweep: 1, scaleExp: 1.0 },
+  // 自爆尸：不打近战，走到跟前直接炸开一大片。
+  // 它把"堆厚阵型然后不管"这条路彻底堵死——必须在它靠上来之前打掉，
+  // 于是射程和单体伤害第一次有了不可替代的价值。
+  bomber:   { kind: 'bomber',   label: '自爆尸', hp: 150,  speed: 4.4,  damage: 0,  scale: 1.2,  gold: 6,   tint: 0xd08a4a, showHealthBar: true,  sweep: 1, scaleExp: 0.75 },
 };
+
+/** 自爆尸：走到方阵跟前就炸，尸体也炸。 */
+export const BOMBER = {
+  /** 进入这个距离就引爆（不进近战队列）。 */
+  fuseRange: 2.6,
+  radius: 4.2,
+  /**
+   * 一发就能带走一个没升过防具的士兵（基础血 42）。
+   * 这个数字是故意卡在这条线上的：不买护甲就是一炸一片，
+   * 买了护甲这一招才从"团灭"降级成"疼一下"。
+   */
+  damage: 48,
+} as const;
 
 /** 吐酸者：远程抛射。 */
 export const SPITTER = {
@@ -446,18 +482,66 @@ export interface UpgradeDef {
   readonly maxLevel: number;
   /** 第 n 级（从 0 开始）的价格。 */
   readonly cost: (level: number) => number;
+  /** 代价：专精模块的负面效果，商店里要和收益并排显示。 */
+  readonly drawback?: string;
+  /** 不占装备位（目前只有"装备位"本身）。 */
+  readonly passive?: boolean;
 }
 
-export type UpgradeId = 'squad' | 'damage' | 'fireRate' | 'cannon' | 'armor' | 'weapon';
+export type UpgradeId =
+  | 'squad' | 'damage' | 'fireRate' | 'cannon' | 'armor' | 'weapon'
+  // 装备位本身：唯一不占位的升级
+  | 'slots'
+  // 专精模块：每一个都带一条真实的代价，不存在"全买了就无敌"
+  | 'heavyGuns' | 'horde' | 'scavenger' | 'strikeSpec' | 'vanguard';
+
+/**
+ * 出征装备位。
+ *
+ * 这是整个 meta 层最重要的一条规则：**商店买满 ≠ 全部生效**。
+ * 之前十几个升级全买满以后，每一局开场就已经赢了——岔路口选什么都无所谓，
+ * 关卡设计的所有取舍瞬间失效，游戏变成看一段动画。改成买到的东西是"你拥有
+ * 的模块库"，每一局只能带 3~5 个上场，于是：
+ *  · 满配玩家依然要在开局前做一次真实的取舍；
+ *  · 局内的随机岔路开始和你带的 build 互动（带了火炮就想走尸潮车道）；
+ *  · 继续买升级仍然有意义——买的是**更多的可能性**，不是更高的数字。
+ */
+export const LOADOUT = {
+  /**
+   * 一开始就有的装备位数量。
+   *
+   * 4 是实测出来的：3 个位子会让中期存档卡在第一关过不去（连"兵力 + 伤害 +
+   * 武器 + 射速"这套最基本的组合都凑不齐），6 个位子又能把六个基础模块全带上，
+   * 等于没加这套系统。4 起步、花钱升到 5，正好卡在"每一局都得砍掉点什么"。
+   */
+  base: 4,
+  /** 买满 slots 之后的上限。 */
+  max: 5,
+} as const;
 
 export const UPGRADES: readonly UpgradeDef[] = [
+  // ── 装备位：唯一不占位的升级，买的是"能同时带几个模块" ──
+  { id: 'slots',    name: '出征编制', desc: '+1 个出征装备位（4 → 5）',   maxLevel: 1,  cost: () => 2600, passive: true },
+
+  // ── 基础模块：稳、没有代价，但每个都要占一个位 ──
   { id: 'squad',    name: '起始兵力', desc: '每级 +2 名起始士兵',       maxLevel: 12, cost: (l) => 120 + l * 95 },
   { id: 'damage',   name: '弹药强化', desc: '每级 +8% 全队伤害',        maxLevel: 12, cost: (l) => 150 + l * 120 },
   { id: 'fireRate', name: '枪械保养', desc: '每级 +6% 全队射速',        maxLevel: 10, cost: (l) => 160 + l * 130 },
   { id: 'cannon',   name: '炮兵编制', desc: '每级 +1 门起始大炮',        maxLevel: 6,  cost: (l) => 350 + l * 300 },
   { id: 'armor',    name: '防弹背心', desc: '每级 +14% 士兵生命',       maxLevel: 10, cost: (l) => 140 + l * 110 },
   // 后期关卡的硬门槛：光堆人头打不动 Boss，必须把起始火力提上来
-  { id: 'weapon',   name: '制式装备', desc: '每级起始武器 +1 级',        maxLevel: 3,  cost: (l) => 900 + l * 1600 },
+  // 八级武器表里插进了霰弹枪，等级整体后移了一格——上限跟着提到 4，
+  // 顶配起手仍然是轻机枪，和加霰弹枪之前保持一致
+  { id: 'weapon',   name: '制式装备', desc: '每级起始武器 +1 级',        maxLevel: 4,  cost: (l) => 900 + l * 1450 },
+
+  // ── 专精模块：收益更高，但每一个都在别的地方挖一个坑 ──
+  // 带代价的模块才是构筑的骨架：没有代价的东西只有"够不够强"，
+  // 有代价的东西才有"配不配得上我这一套"。
+  { id: 'heavyGuns',  name: '重炮编队', desc: '每级 +2 门起始大炮',   drawback: '每级 −12% 起始兵力', maxLevel: 3, cost: (l) => 600 + l * 520 },
+  { id: 'horde',      name: '人海战术', desc: '每级 +8 名起始士兵',   drawback: '每级 −7% 全队伤害',  maxLevel: 4, cost: (l) => 420 + l * 380 },
+  { id: 'vanguard',   name: '轻装突击', desc: '每级 +9% 推进速度',     drawback: '每级 −10% 士兵生命', maxLevel: 3, cost: (l) => 500 + l * 460 },
+  { id: 'scavenger',  name: '拾荒专精', desc: '每级 +22% 局内金币',    drawback: '不提供任何战斗力',   maxLevel: 3, cost: (l) => 480 + l * 420 },
+  { id: 'strikeSpec', name: '空袭引导', desc: '每级 +22% 空袭充能、+8% 范围', drawback: '不提供任何被动战力', maxLevel: 3, cost: (l) => 560 + l * 500 },
 ];
 
 export const UPGRADE_EFFECT = {
@@ -465,6 +549,17 @@ export const UPGRADE_EFFECT = {
   damagePerLevel: 0.08,
   fireRatePerLevel: 0.06,
   armorPerLevel: 0.14,
+
+  // 专精模块：正面 + 代价成对出现
+  heavyGunsCannon: 2,
+  heavyGunsSoldierPenalty: 0.12,
+  hordeSoldiers: 8,
+  hordeDamagePenalty: 0.07,
+  vanguardSpeed: 0.09,
+  vanguardHpPenalty: 0.10,
+  scavengerGold: 0.22,
+  strikeCharge: 0.22,
+  strikeRadius: 0.08,
 } as const;
 
 /** 起始配置（未买任何升级时）。 */

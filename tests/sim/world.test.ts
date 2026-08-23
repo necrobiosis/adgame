@@ -3,8 +3,9 @@ import { ENDLESS_ID } from '../../src/config/levels';
 import { World } from '../../src/sim/World';
 import { BUFF_CAP, SOLDIER, type UpgradeId } from '../../src/config/balance';
 import { LANE_SIGN } from '../../src/sim/lanes';
+import { LEVELS_MAX_UPGRADES, NO_UPGRADES, upgrades as mkUpgrades } from './fixtures';
 
-const NO_UPGRADES: Record<UpgradeId, number> = { squad: 0, damage: 0, fireRate: 0, cannon: 0, armor: 0, weapon: 0 };
+
 
 /** 用固定的操控策略把一整局跑完，返回结果。 */
 function simulate(levelId: number, steer: (w: World, t: number) => number, maxSeconds = 400) {
@@ -74,7 +75,7 @@ describe('World', () => {
     // "慢到几乎不动 + 打掉之后立刻恢复"，而不是"完全静止"。
     // 这条测的是方块的推进机制，不是难度曲线——给一套够用的升级，
     // 保证方阵能活着走到方块跟前，否则测的就变成"裸配能不能撑到那儿"了
-    const kitted: Record<UpgradeId, number> = { squad: 10, damage: 8, fireRate: 6, cannon: 4, armor: 8, weapon: 2 };
+    const kitted = mkUpgrades({ squad: 10, damage: 8, fireRate: 6, cannon: 4, armor: 8, weapon: 2 });
     const w = new World({ levelId: 2, upgrades: kitted, seed: 3 });
     const full = w.blocks.find((b) => b.span === 'full')!;
     const dt = 1 / 60;
@@ -105,7 +106,7 @@ describe('World', () => {
   });
 
   it('升级会真实提升战斗力：满配比裸配打得更远/更快', () => {
-    const maxed: Record<UpgradeId, number> = { squad: 12, damage: 12, fireRate: 10, cannon: 6, armor: 10, weapon: 3 };
+    const maxed = LEVELS_MAX_UPGRADES;
     const run = (up: Record<UpgradeId, number>) => {
       const w = new World({ levelId: 3, upgrades: up, seed: 99 });
       const dt = 1 / 60;
@@ -126,7 +127,7 @@ describe('World', () => {
 });
 
 describe('无尽模式', () => {
-  const kitted: Record<UpgradeId, number> = { squad: 10, damage: 8, fireRate: 6, cannon: 4, armor: 8, weapon: 2 };
+  const kitted = mkUpgrades({ squad: 10, damage: 8, fireRate: 6, cannon: 4, armor: 8, weapon: 2 });
 
   it('开局不会被"Boss 触发"卡死（没有 boss beat，arenaZ 是 0）', () => {
     const w = new World({ levelId: ENDLESS_ID, upgrades: kitted, seed: 5 });
@@ -181,7 +182,7 @@ describe('无尽模式', () => {
   });
 
   it('满配也会被无尽模式打死（怪确实越来越强）', () => {
-    const maxed: Record<UpgradeId, number> = { squad: 12, damage: 12, fireRate: 10, cannon: 6, armor: 10, weapon: 3 };
+    const maxed = LEVELS_MAX_UPGRADES;
     const w = new World({ levelId: ENDLESS_ID, upgrades: maxed, seed: 5 });
     const dt = 1 / 60;
     let t = 0;

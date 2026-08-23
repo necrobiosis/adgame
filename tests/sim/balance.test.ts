@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { World } from '../../src/sim/World';
-import { CANNON, LEVELS_MAX_UPGRADES, type UpgradeId } from './fixtures';
-import type { GateSpec, WaveSpec } from '../../src/config/levels';
-import { LANE_SIGN } from '../../src/sim/lanes';
+import { BEST_LOADOUT, CANNON, LEVELS_MAX_UPGRADES, NO_UPGRADES, playSmart, type UpgradeId } from './fixtures';
 
 /**
  * 难度曲线回归测试。
@@ -10,62 +7,16 @@ import { LANE_SIGN } from '../../src/sim/lanes';
  * 而且每一关都必须能被打通。改 balance.ts / levels.ts 时这里会第一时间报警。
  */
 
-const NONE: Record<UpgradeId, number> = { squad: 0, damage: 0, fireRate: 0, cannon: 0, armor: 0, weapon: 0 };
+const NONE = NO_UPGRADES;
 
-function laneProfile(w: WaveSpec) {
-  let count = 0;
-  let big = 0;
-  for (const g of w.groups) {
-    count += g.count;
-    if (g.kind === 'brute' || g.kind === 'titan') big += g.count;
-  }
-  return { count, big, swarm: big === 0 };
-}
-
-/**
- * 一个"会玩的人"的策略，也是这个游戏想教会玩家的那条线：
- *   前期堆人头（人少的时候，兵力既是输出也是血条），
- *   兵力上来之后转去堆火力（后排火力衰减让堆人头收益递减），
- *   同分时让增益去克制它自己那条车道的怪。
- */
-function scoreLane(gate: GateSpec, wave: WaveSpec, n: number, gold = Infinity): number {
-  // 买不起就等于这条车道什么都不给——牌子上写着价钱，真人不会往上撞
-  if ((gate.cost ?? 0) > gold) return -99;
-  const p = laneProfile(wave);
-  const wantBodies = n < 90;
-  let s = 0;
-  switch (gate.type) {
-    case 'add': s = wantBodies ? 20 + gate.value / 60 : 6; break;
-    case 'mul': s = wantBodies ? 22 + gate.value : 7; break;
-    case 'weapon': s = wantBodies ? 8 : 20 + gate.value * 2; break;
-    case 'cannon': s = (wantBodies ? 6 : 14) + (p.swarm ? 3 : 0); break;
-    case 'firerate': s = wantBodies ? 6 : 12; break;
-    case 'armor': s = 5; break;
-    case 'gold': s = 2; break;
-    case 'sub': s = -2 - gate.value / 20; break;
-    case 'div': s = -4; break;
-  }
-  return s - p.count / 400 - p.big * 0.3;
-}
-
-function play(levelId: number, upgrades: Record<UpgradeId, number>, seed = 3) {
-  const w = new World({ levelId, upgrades, seed });
-  const dt = 1 / 60;
-  let t = 0;
-  while (w.phase === 'running' && t < 240) {
-    const next = w.gates.find((g) => !g.taken && g.z > w.squad.z);
-    let want = LANE_SIGN.left * 6;
-    if (next) {
-      const n = w.squad.soldierCount;
-      const side = scoreLane(next.left.gate, next.left.wave, n, w.gold) >= scoreLane(next.right.gate, next.right.wave, n, w.gold) ? 'left' : 'right';
-      want = LANE_SIGN[side] * 6;
-    }
-    w.steer = Math.abs(want - w.squad.x) > 0.3 ? Math.sign(want - w.squad.x) : 0;
-    w.step(dt);
-    w.drainEvents();
-    t += dt;
-  }
-  return { w, t };
+/** 满配 + 一套通用的好装备，跑一整局。 */
+function play(
+  levelId: number,
+  upgrades: Record<UpgradeId, number>,
+  seed = 3,
+  loadout: readonly UpgradeId[] = BEST_LOADOUT,
+) {
+  return playSmart(levelId, upgrades, loadout, seed);
 }
 
 describe('难度曲线', () => {
