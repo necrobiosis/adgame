@@ -912,6 +912,25 @@ export class GameView {
           });
           break;
         }
+        case 'strikeCall': {
+          this.floats.push({ text: '空袭已呼叫', color: '#ffb03a', x: ev.x!, y: 4.2, z: ev.z!, big: true });
+          break;
+        }
+        case 'strikeImpact': {
+          this.sparks.burst(ev.x!, 0.5, ev.z!, {
+            count: 44, color: 0xfff2c8, color2: 0xc03c06, speed: [7, 22], size: [0.7, 1.9],
+            life: [0.25, 0.62], grow: 1.8, drag: 2.6, stretch: 2.8,
+          });
+          this.smoke.burst(ev.x!, 0.6, ev.z!, {
+            count: 16, color: 0x8f887f, color2: 0x33302c, speed: [2, 8], size: [1.4, 3.0],
+            life: [0.7, 1.5], grow: 3.6, drag: 1.8, lift: 2.2, fadeIn: 0.18,
+          });
+          this.waves.spawn(ev.x!, ev.z!, 0.8, (ev.radius ?? 6.4) * 2, 0xffb257, 0.5, 1.4);
+          this.flashes.flash(ev.x!, 2.0, ev.z!, 0xff9a38, 170, 0.28);
+          this.decals.add('scorch', ev.x!, ev.z!, (ev.radius ?? 6.4) * 1.5, 0.42);
+          this.camera.punch(0.42);
+          break;
+        }
         case 'spitterFire': {
           // 枪口侧：吐出来的那一下
           this.sparks.burst(ev.x!, ev.y!, ev.z!, {

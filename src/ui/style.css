@@ -168,6 +168,71 @@ html, body {
 }
 .squad-badge.on { display: block; }
 
+/* ── 空袭按钮 ─────────────────────────────────────────────
+   竖屏单手操作，所以按钮压在右下角拇指够得到的位置，并且刻意避开
+   进度条和左下的方阵。充能没满时是灰的且 disabled，满了才点亮。 */
+.strike {
+  position: absolute;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 42px);
+  width: 66px;
+  height: 66px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.2s ease;
+  opacity: 0.55;
+}
+.strike:disabled { cursor: default; }
+.strike .ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  /* 充能进度由 JS 写成 conic-gradient */
+  background: rgba(255,255,255,0.10);
+  -webkit-mask: radial-gradient(circle, transparent 60%, #000 62%);
+  mask: radial-gradient(circle, transparent 60%, #000 62%);
+}
+.strike .icon {
+  position: absolute;
+  inset: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(10, 14, 22, 0.82);
+  border: 1px solid var(--stroke);
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: var(--ink);
+  text-shadow: 0 2px 5px rgba(0,0,0,0.85);
+}
+.strike.ready {
+  opacity: 1;
+  animation: strike-pulse 1.5s ease-in-out infinite;
+}
+.strike.ready .icon {
+  background: rgba(48, 26, 8, 0.9);
+  border-color: rgba(255, 176, 58, 0.75);
+  color: #ffd08a;
+  box-shadow: 0 0 16px rgba(255, 150, 40, 0.5);
+}
+.strike.ready:active { transform: scale(0.92); }
+.strike.fire { animation: strike-fire 0.42s ease-out; }
+@keyframes strike-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+@keyframes strike-fire {
+  0% { transform: scale(1.25); filter: brightness(2.2); }
+  100% { transform: scale(1); filter: none; }
+}
+
 .hud-bottom {
   position: absolute;
   left: 12px; right: 12px;

@@ -1,5 +1,6 @@
 import {
   ADVANCE_SPEED,
+  AIRSTRIKE,
   BLOCK,
   BOSS,
   GOLD_PICKUP,
@@ -75,6 +76,11 @@ export class World {
    * 渲染层/战斗层都要看它：撞墙时方阵停下来啃，不撞就自动绕开。
    */
   ramming = false;
+
+  /** 空袭充能 0..1。满了才能呼叫。 */
+  strikeCharge = 0;
+  /** 已呼叫、还在飞行途中的炸弹。 */
+  private pendingBombs: { t: number; x: number; z: number }[] = [];
   /** 当前正在啃的那堵半宽墙，以及已经啃了多久（用于超时放弃）。 */
   private ramBlockId = -1;
   private ramTime = 0;
@@ -297,10 +303,23 @@ export class World {
     const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, this.ramming, out);
     this.enemies.update(dt, this.squad, this.barrier, out);
 
-    for (const ev of out) if (ev.type === 'kill') this.stats.kills++;
+    for (const ev of out) {
+      if (ev.type !== 'kill') continue;
+      this.stats.kills++;
+      // 打得越凶技能来得越快，鼓励主动接战而不是龟着等冷却
+      if (this.strikeCharge < 1) {
+        this.strikeCharge = Math.min(1, this.strikeCharge + AIRSTRIKE.chargePerKill / AIRSTRIKE.chargeSeconds);
+      }
+    }
     this.gold += gold;
     this.stats.goldEarned += gold;
     this.stats.peakSoldiers = Math.max(this.stats.peakSoldiers, this.squad.soldierCount);
+
+    // ── 空袭 ────────────────────────────────────────────────
+    if (this.strikeCharge < 1) {
+      this.strikeCharge = Math.min(1, this.strikeCharge + dt / AIRSTRIKE.chargeSeconds);
+    }
+    this.updateBombs(dt, out);
 
     for (const b of this.blocks) if (b.flash > 0) b.flash = Math.max(0, b.flash - dt);
 
@@ -313,6 +332,53 @@ export class World {
       this.gold += this.level.clearGold;
       this.stats.goldEarned += this.level.clearGold;
       out.push({ type: 'win', amount: this.level.clearGold });
+    }
+  }
+
+  /**
+   * 呼叫空袭。充能没满就什么都不做（返回 false，让 UI 能给出反馈）。
+   * 落点锚在呼叫瞬间方阵的横向位置——所以"瞄准"就是走位本身。
+   */
+  callAirstrike(): boolean {
+    if (this.strikeCharge < 1 || this.phase !== 'running') return false;
+    this.strikeCharge = 0;
+    const cx = this.squad.x;
+    const cz = this.squad.z + AIRSTRIKE.ahead;
+    for (let i = 0; i < AIRSTRIKE.bombs; i++) {
+      const t = AIRSTRIKE.bombs > 1 ? i / (AIRSTRIKE.bombs - 1) : 0.5;
+      this.pendingBombs.push({
+        // 沿纵深一路铺过去，读起来像一串炸弹连着炸，而不是一发大的
+        t: AIRSTRIKE.delay + t * 0.55,
+        x: clamp(cx + this.rng.range(-AIRSTRIKE.spreadX, AIRSTRIKE.spreadX), -ROAD_HALF, ROAD_HALF),
+        z: cz + (t - 0.5) * AIRSTRIKE.spreadZ + this.rng.range(-2, 2),
+      });
+    }
+    this.events.push({ type: 'strikeCall', x: cx, y: 0, z: cz });
+    return true;
+  }
+
+  private updateBombs(dt: number, out: SimEvent[]): void {
+    if (this.pendingBombs.length === 0) return;
+    const r2 = AIRSTRIKE.radius * AIRSTRIKE.radius;
+    for (let i = this.pendingBombs.length - 1; i >= 0; i--) {
+      const b = this.pendingBombs[i]!;
+      b.t -= dt;
+      if (b.t > 0) continue;
+      this.pendingBombs.splice(i, 1);
+      let gold = 0;
+      for (const e of this.enemies.list) {
+        if (!e.alive) continue;
+        const dx = e.x - b.x;
+        const dz = e.z - b.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > r2) continue;
+        const falloff = 1 - (1 - AIRSTRIKE.splashEdge) * Math.sqrt(d2 / r2);
+        // 算溅射伤害，所以重甲的子弹减免挡不住空袭
+        gold += this.enemies.damage(e, AIRSTRIKE.damage * falloff, out, true);
+      }
+      this.gold += gold;
+      this.stats.goldEarned += gold;
+      out.push({ type: 'strikeImpact', x: b.x, y: 0.3, z: b.z, radius: AIRSTRIKE.radius });
     }
   }
 

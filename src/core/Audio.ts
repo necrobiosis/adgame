@@ -318,6 +318,16 @@ export class Audio {
     this.tone({ f0: 180, f1: 70, dur: 0.16, gain: 0.14, pan });
   }
 
+  /** 呼叫空袭：一声由远及近的引擎啸叫，给落弹留出期待。 */
+  strikeCall(): void {
+    if (!this.ready()) return;
+    this.duck(1.2);
+    // 俯冲的引擎声：低频上扬 + 一层拉宽的噪声
+    this.tone({ type: 'sawtooth', f0: 160, f1: 520, dur: 0.85, gain: 0.24, send: 0.5, attack: 0.5 });
+    this.tone({ type: 'square', f0: 80, f1: 260, dur: 0.85, gain: 0.12, send: 0.4, attack: 0.55 });
+    this.noise({ f0: 400, f1: 2200, dur: 0.85, gain: 0.18, q: 2.0, bank: 1, send: 0.45, attack: 0.6 });
+  }
+
   /** 跳跃者起跳：一声短促上扬的嘶吼。 */
   leap(pan = 0): void {
     if (!this.ready() || Math.random() > 0.55) return;

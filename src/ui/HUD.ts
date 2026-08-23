@@ -22,6 +22,9 @@ export class HUD {
   private readonly bossHp: HTMLElement;
   private readonly bossFill: HTMLElement;
   private readonly squadBadge: HTMLElement;
+  private readonly strikeBtn: HTMLButtonElement;
+  private readonly strikeRing: HTMLElement;
+  private strikeReady: boolean | null = null;
 
   constructor(parent: HTMLElement) {
     this.root = h(`
@@ -40,6 +43,10 @@ export class HUD {
           <div class="track"><div class="fill" style="width:100%"></div></div>
         </div>
         <div class="squad-badge">× 0</div>
+        <button class="strike" type="button" aria-label="空袭">
+          <span class="ring"></span>
+          <span class="icon">空袭</span>
+        </button>
         <div class="hud-bottom">
           <div class="progress-label"><span class="lname">第一关</span><span class="lpct">0%</span></div>
           <div class="progress"><div class="fill" style="width:0%"></div></div>
@@ -62,6 +69,23 @@ export class HUD {
     this.bossHp = q('.boss-bar .hp');
     this.bossFill = q('.boss-bar .fill');
     this.squadBadge = q('.squad-badge');
+    this.strikeBtn = q('.strike') as HTMLButtonElement;
+    this.strikeRing = q('.strike .ring');
+  }
+
+  /** 空袭按钮的点击回调由 Game 装上。 */
+  onStrike(fn: () => void): void {
+    this.strikeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      fn();
+    });
+  }
+
+  /** 呼叫成功时给一下反馈动画。 */
+  flashStrike(): void {
+    this.strikeBtn.classList.remove('fire');
+    void this.strikeBtn.offsetWidth;
+    this.strikeBtn.classList.add('fire');
   }
 
   /**
@@ -96,6 +120,17 @@ export class HUD {
     const pct = Math.round(world.progress * 100);
     this.progressPct.textContent = `${pct}%`;
     this.progressFill.style.width = `${pct}%`;
+
+    // 充能环用 conic-gradient 画，满了才点亮并允许点击
+    const c = Math.max(0, Math.min(1, world.strikeCharge));
+    this.strikeRing.style.background =
+      `conic-gradient(#ffb03a ${c * 360}deg, rgba(255,255,255,0.10) 0deg)`;
+    const ready = c >= 1;
+    if (ready !== this.strikeReady) {
+      this.strikeReady = ready;
+      this.strikeBtn.classList.toggle('ready', ready);
+      this.strikeBtn.disabled = !ready;
+    }
 
     const boss = world.boss.enemy;
     if (boss && boss.alive) {

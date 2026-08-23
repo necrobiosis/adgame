@@ -199,6 +199,31 @@ export const LEAPER = {
   cooldown: 5.5,
 } as const;
 
+/**
+ * 空袭：玩家唯一的主动技能，也是"左右移动"之外的第二个动词。
+ *
+ * 瞄准点就是方阵当前的横向位置，于是走位同时服务于四件事：躲技能、捡金币、
+ * 选门、瞄空袭。一个动词承担四种决策，比再加一根摇杆更适合这个竖屏单手游戏。
+ */
+export const AIRSTRIKE = {
+  /** 充满需要多少秒（击杀会额外加速，见 World.step）。 */
+  chargeSeconds: 26,
+  /** 每次击杀折算多少秒充能——打得越凶，技能来得越快。 */
+  chargePerKill: 0.14,
+  /** 落点在方阵前方多远。 */
+  ahead: 30,
+  /** 一次投几发。 */
+  bombs: 7,
+  /** 投弹沿纵深铺开的范围。 */
+  spreadZ: 16,
+  spreadX: 5.5,
+  /** 从呼叫到第一发落地的延迟——听得到、看得见、来得及期待。 */
+  delay: 0.9,
+  damage: 520,
+  radius: 6.4,
+  splashEdge: 0.45,
+} as const;
+
 /** 嚎叫者光环：半径内的僵尸速度与伤害倍率。 */
 export const SCREAMER_AURA = { radius: 12, speedMul: 1.45, damageMul: 1.35 } as const;
 

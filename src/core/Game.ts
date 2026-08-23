@@ -101,6 +101,11 @@ export class Game {
     this.floats = new FloatingLayer(overlay);
     this.hud = new HUD(overlay);
     this.hud.setVisible(false);
+    this.hud.onStrike(() => {
+      this.audio.unlock();
+      if (this.world && this.world.callAirstrike()) this.hud.flashStrike();
+      else this.audio.click();
+    });
     this.screens = new Screens(overlay, this.save, {
       startLevel: (id) => this.startLevel(id),
       openShop: () => this.openShop(),
@@ -349,6 +354,8 @@ export class Game {
         case 'spitterHit': this.audio.acidSplash(pan(ev.x)); break;
         case 'leaperJump': this.audio.leap(pan(ev.x)); break;
         case 'leaperLand': this.audio.footstep(pan(ev.x)); break;
+        case 'strikeCall': this.audio.strikeCall(); break;
+        case 'strikeImpact': this.audio.explosion(pan(ev.x)); break;
         case 'bossLightningHit':
           this.audio.thunderCrack(pan(ev.x));
           this.floats.flash();
@@ -363,6 +370,7 @@ export class Game {
         case 'bossSlamHit':
         case 'bossLightningHit': this.hitstop = Math.max(this.hitstop, 0.075); break;
         case 'blockDestroyed': this.hitstop = Math.max(this.hitstop, 0.06); break;
+        case 'strikeImpact': this.hitstop = Math.max(this.hitstop, 0.04); break;
         case 'midbossAbilityHit': this.hitstop = Math.max(this.hitstop, 0.05); break;
         default: break;
       }
