@@ -44,6 +44,10 @@ export const ENEMY_JITTER: Record<string, JitterOptions> = {
   screamer: { hue: 0.030, saturation: 0.13, lightness: 0.10 },
   brute:    { hue: 0.025, saturation: 0.11, lightness: 0.09 },
   titan:    { hue: 0.020, saturation: 0.09, lightness: 0.08 },
+  spitter:  { hue: 0.035, saturation: 0.15, lightness: 0.12 },
+  leaper:   { hue: 0.040, saturation: 0.16, lightness: 0.13 },
+  // 重甲是制式装备，不该五颜六色——只留一点点金属色差
+  armored:  { hue: 0.012, saturation: 0.06, lightness: 0.09 },
   midboss:  { hue: 0, saturation: 0, lightness: 0 },
   boss:     { hue: 0, saturation: 0, lightness: 0 },
 };

@@ -607,6 +607,43 @@ export function screamerGeometry(q: BuildQuality): THREE.BufferGeometry {
   }, q);
 }
 
+/**
+ * 吐酸者：鼓胀的躯干 + 前倾的长脖子，一眼读得出"这只会吐东西"。
+ * 病态的黄绿配色和普通尸的灰绿拉开距离。
+ */
+export function spitterGeometry(q: BuildQuality): THREE.BufferGeometry {
+  return buildHumanoid({
+    height: 1.82, build: 1.12, hunch: 0.62, reach: -0.6, decayed: true, gaunt: false,
+    eyes: 'zombie', mouth: 'open', seed: 83,
+    palette: { skin: 0x9fc27a, cloth: 0x5e6b3a, dark: 0x333c1e, accent: 0x7d8f45, bone: 0xdfe6c0 },
+  }, q);
+}
+
+/**
+ * 跳跃者：瘦长、重心高、爪子夸张——侧影就要读出"这只会扑过来"。
+ * 前倾角比疾行者还大。
+ */
+export function leaperGeometry(q: BuildQuality): THREE.BufferGeometry {
+  return buildHumanoid({
+    height: 1.74, build: 0.78, hunch: 0.72, reach: -1.0, claws: true, decayed: true, gaunt: true,
+    eyes: 'zombie', mouth: 'fanged', seed: 91,
+    palette: { skin: 0xd0a05c, cloth: 0x7a5a2a, dark: 0x453016, accent: 0x9c7434, bone: 0xf0e0b8 },
+  }, q);
+}
+
+/**
+ * 重甲尸：厚重的板甲外壳 + 头盔，站姿最直。
+ * 复用士兵那套 helmet/backpack 配件来堆装甲感，配色压成冷灰钢，
+ * 让玩家一眼看出"这只不是用枪能啃动的"。
+ */
+export function armoredGeometry(q: BuildQuality): THREE.BufferGeometry {
+  return buildHumanoid({
+    height: 2.05, build: 1.38, hunch: 0.14, reach: -0.4, helmet: true, backpack: true, decayed: true,
+    eyes: 'glow', mouth: 'closed', seed: 67,
+    palette: { skin: 0x6d7681, cloth: 0x4a535e, dark: 0x272d35, accent: 0x8d99a6, bone: 0xb9c4cf },
+  }, q);
+}
+
 export function bruteGeometry(q: BuildQuality): THREE.BufferGeometry {
   return buildHumanoid({
     height: 2.2, build: 1.45, hunch: 0.4, reach: -0.85, claws: true, spikes: true, decayed: true,

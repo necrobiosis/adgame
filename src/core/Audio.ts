@@ -309,6 +309,23 @@ export class Audio {
     this.tone({ f0: 110, f1: 48, dur: 0.24, gain: 0.16, pan, send: 0.2 });
   }
 
+  /** 酸液落地：一声湿黏的"啪嗒"加一点嘶嘶的腐蚀声。 */
+  acidSplash(pan = 0): void {
+    if (!this.ready()) return;
+    this.noise({ type: 'lowpass', f0: 1500, f1: 280, dur: 0.18, gain: 0.26, pan, bank: 2, send: 0.35 });
+    // 嘶嘶声：高频窄带慢慢退下去
+    this.noise({ f0: 5200, f1: 2600, dur: 0.5, gain: 0.12, q: 3.2, pan, bank: 0, send: 0.4, attack: 0.04 });
+    this.tone({ f0: 180, f1: 70, dur: 0.16, gain: 0.14, pan });
+  }
+
+  /** 跳跃者起跳：一声短促上扬的嘶吼。 */
+  leap(pan = 0): void {
+    if (!this.ready() || Math.random() > 0.55) return;
+    const j = 0.85 + Math.random() * 0.4;
+    this.tone({ type: 'sawtooth', f0: 220 * j, f1: 640 * j, dur: 0.22, gain: 0.16, pan, send: 0.3, attack: 0.03 });
+    this.noise({ f0: 900, f1: 2600, dur: 0.2, gain: 0.12, q: 2.4, pan, bank: 1, send: 0.25 });
+  }
+
   /** 近战撞击。 */
   meleeHit(pan = 0): void {
     if (!this.ready() || Math.random() > 0.2) return;

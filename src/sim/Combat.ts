@@ -139,7 +139,7 @@ export class Combat {
         const d2 = dx * dx + dz * dz;
         if (d2 > r2) continue;
         const falloff = 1 - (1 - CANNON.splashEdge) * Math.sqrt(d2 / r2);
-        gold += pool.damage(e, splashDmg * falloff, out);
+        gold += pool.damage(e, splashDmg * falloff, out, true);
       }
       if (block && block.alive && Math.abs(block.z - s.tz) < CANNON.splashRadius && s.tx >= block.x0 - 2 && s.tx <= block.x1 + 2) {
         block.hp -= splashDmg;

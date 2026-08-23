@@ -112,7 +112,11 @@ export const MELEE = {
 
 // ─────────────────────────── 敌人 ───────────────────────────
 
-export type EnemyKind = 'walker' | 'runner' | 'screamer' | 'brute' | 'titan' | 'midboss' | 'boss';
+export type EnemyKind =
+  | 'walker' | 'runner' | 'screamer' | 'brute' | 'titan' | 'midboss' | 'boss'
+  // ↓ 行为上真正不同的三种。之前所有怪共用同一套"走过来打前排"的例程，
+  //   疾行者和普通尸的区别只有血量和速度；这三种各自攻击当前同质化的一个轴。
+  | 'spitter' | 'leaper' | 'armored';
 
 export interface EnemyStats {
   readonly kind: EnemyKind;
@@ -137,6 +141,11 @@ export interface EnemyStats {
    * 精英车道会直接变成不可通过的墙。
    */
   readonly scaleExp: number;
+  /**
+   * 对子弹的伤害减免（0~0.95）。重甲尸靠它把"纯堆武器"这条路堵死——
+   * 火炮溅射不吃这个减免，于是火炮门第一次和武器门有了本质区别。
+   */
+  readonly bulletResist?: number;
 }
 
 export const ENEMY_STATS: Record<EnemyKind, EnemyStats> = {
@@ -155,7 +164,40 @@ export const ENEMY_STATS: Record<EnemyKind, EnemyStats> = {
   // （每关在 levels.ts 的 midboss beat 里给绝对血量），留一个量级合理的默认值。
   midboss:  { kind: 'midboss',  label: '腐蚀主宰', hp: 9000, speed: 2.3, damage: 58, scale: 2.7,  gold: 150, tint: 0xeef2e0, showHealthBar: true,  sweep: 6, scaleExp: 0.4 },
   boss:     { kind: 'boss',     label: '深渊领主', hp: 2700, speed: 2.6, damage: 68, scale: 4.4, gold: 400, tint: 0xf5f0e8, showHealthBar: true,  sweep: 8, scaleExp: 0 },
+
+  // 吐酸者：停在射程外抛酸，落点有预警圈。第一个不靠贴脸的威胁——
+  // 站着不动就会被慢慢磨死，逼玩家真的用走位躲。
+  spitter:  { kind: 'spitter',  label: '吐酸者', hp: 340,  speed: 2.9,  damage: 8,  scale: 1.15, gold: 9,   tint: 0x9fc27a, showHealthBar: true,  sweep: 1, scaleExp: 0.8 },
+  // 跳跃者：周期性跃过前排，落进阵型中后段。前排保护对它无效，
+  // 惩罚"把方阵堆得很厚然后不管后排"的打法。
+  leaper:   { kind: 'leaper',   label: '跳跃者', hp: 270,  speed: 5.4,  damage: 14, scale: 1.0,  gold: 7,   tint: 0xd0a05c, showHealthBar: true,  sweep: 1, scaleExp: 0.8 },
+  // 重甲尸：子弹打不动，必须靠火炮溅射。
+  armored:  { kind: 'armored',  label: '重甲尸', hp: 900,  speed: 2.1,  damage: 26, scale: 1.5,  gold: 26,  tint: 0x8d99a6, showHealthBar: true,  sweep: 2, scaleExp: 0.6, bulletResist: 0.82 },
 };
+
+/** 吐酸者：远程抛射。 */
+export const SPITTER = {
+  /** 停在离方阵这么远的地方开火，不再往前压。 */
+  standoff: 19,
+  /** 落点预警时长——必须够玩家反应过来横向躲开。 */
+  telegraph: 0.95,
+  radius: 3.0,
+  damage: 22,
+  cooldown: 3.6,
+} as const;
+
+/** 跳跃者：越过前排砸进阵型中后段。 */
+export const LEAPER = {
+  /** 进入这个距离之内才起跳。 */
+  triggerRange: 16,
+  /** 滞空时间。 */
+  airTime: 0.75,
+  /** 落点相对方阵前沿往里扎多深。 */
+  landDepth: 4.5,
+  damage: 20,
+  radius: 2.2,
+  cooldown: 5.5,
+} as const;
 
 /** 嚎叫者光环：半径内的僵尸速度与伤害倍率。 */
 export const SCREAMER_AURA = { radius: 12, speedMul: 1.45, damageMul: 1.35 } as const;

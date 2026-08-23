@@ -32,13 +32,16 @@ import { ensureSurf } from './mat/triplanar';
 import { createCrowdMaterial, type CrowdMaterialSet } from './units/CrowdMaterial';
 import { ENEMY_JITTER, SOLDIER_JITTER, WHITE, jitterTint } from './units/colorVariation';
 import {
+  armoredGeometry,
   bossGeometry,
   bruteGeometry,
+  leaperGeometry,
   geometryPivots,
   midBossGeometry,
   runnerGeometry,
   screamerGeometry,
   soldierGeometry,
+  spitterGeometry,
   titanGeometry,
   zombieGeometry,
   type BuildQuality,
@@ -60,6 +63,9 @@ const CROWD_CAPACITY: Record<EnemyKind, number> = {
   titan: 32,
   midboss: 2,
   boss: 1,
+  spitter: 60,
+  leaper: 90,
+  armored: 60,
 };
 
 /**
@@ -194,6 +200,9 @@ export class GameView {
       titan: titanGeometry,
       midboss: midBossGeometry,
       boss: bossGeometry,
+      spitter: spitterGeometry,
+      leaper: leaperGeometry,
+      armored: armoredGeometry,
     };
 
     const crowdShadows = this.r.quality.crowdShadows && this.r.quality.shadowMap > 0;
@@ -560,8 +569,9 @@ export class GameView {
     const yaw = Math.PI + ((e.id % 7) - 3) * 0.045;
     // 贴到方阵跟前的会切成攻击姿态
     const attacking = e.alive && e.z - squadZ < 2.6 + e.scale * 0.6;
+    // 跳跃者滞空时抬到抛物线的高度上；其余怪 airY 恒为 0
     batch.add(
-      e.x, 0, e.z,
+      e.x, e.airY ?? 0, e.z,
       yaw,
       e.scale,
       e.phase,
@@ -572,7 +582,7 @@ export class GameView {
       jitterTint(this.tints.get(e.kind)!, e.id, ENEMY_JITTER[e.kind]),
     );
     if (st.showHealthBar && e.alive && e.hp < e.maxHp) {
-      this.bars.add(e.x, 1.95 * e.scale, e.z, e.hp / e.maxHp, 1.5 + e.scale * 0.35);
+      this.bars.add(e.x, (e.airY ?? 0) + 1.95 * e.scale, e.z, e.hp / e.maxHp, 1.5 + e.scale * 0.35);
     }
   }
 
@@ -900,6 +910,50 @@ export class GameView {
           this.sparks.burst(world.squad.x, 1.2, world.squad.z, {
             count: 30, color: 0x8fd8ff, speed: [3, 11], size: [0.5, 1.2], life: [0.3, 0.7], grow: 0.6, drag: 2.2, lift: 2,
           });
+          break;
+        }
+        case 'spitterFire': {
+          // 枪口侧：吐出来的那一下
+          this.sparks.burst(ev.x!, ev.y!, ev.z!, {
+            count: 8, color: 0xd8ff88, color2: 0x4a6a18, speed: [2, 6], size: [0.3, 0.6],
+            life: [0.18, 0.36], grow: -0.4, stretch: 1.6,
+          });
+          // 落点：一圈毒绿的预警火花，告诉玩家"这里要中招了，闪开"
+          this.sparks.burst(ev.tx!, 0.2, ev.tz!, {
+            count: 6, color: 0xaef05a, speed: [0.5, 1.8], size: [0.25, 0.5], life: [0.3, 0.6], grow: -0.3,
+          });
+          this.waves.spawn(ev.tx!, ev.tz!, (ev.radius ?? 3) * 1.6, (ev.radius ?? 3) * 0.9, 0x9ce85a, 0.9, 0.8);
+          break;
+        }
+        case 'spitterHit': {
+          this.sparks.burst(ev.x!, 0.3, ev.z!, {
+            count: 24, color: 0xd8ff9a, color2: 0x2f5010, speed: [3, 11], size: [0.4, 1.1],
+            life: [0.25, 0.55], grow: 1.2, drag: 2.4, stretch: 1.8,
+          });
+          this.smoke.burst(ev.x!, 0.3, ev.z!, {
+            count: 6, color: 0x6f8c3a, color2: 0x2a3a18, speed: [1, 4], size: [0.8, 1.6],
+            life: [0.5, 1.0], grow: 2.2, drag: 2, lift: 1, fadeIn: 0.2,
+          });
+          this.decals.add('ichor', ev.x!, ev.z!, (ev.radius ?? 3) * 1.5, 0.7);
+          this.flashes.flash(ev.x!, 1.2, ev.z!, 0x9ce85a, 40, 0.2);
+          if ((ev.amount ?? 0) > 0) this.camera.punch(0.14);
+          break;
+        }
+        case 'leaperJump': {
+          this.sparks.burst(ev.x!, 0.2, ev.z!, {
+            count: 10, color: 0xffd08a, color2: 0x6a4410, speed: [2, 6], size: [0.3, 0.7],
+            life: [0.2, 0.4], grow: -0.4, lift: 1.5, stretch: 1.2,
+          });
+          break;
+        }
+        case 'leaperLand': {
+          // 砸进阵型：一圈小冲击波，让玩家意识到"后排被打了"
+          this.sparks.burst(ev.x!, 0.2, ev.z!, {
+            count: 18, color: 0xffe0a0, color2: 0x8a4a10, speed: [4, 12], size: [0.4, 1.0],
+            life: [0.2, 0.45], grow: 1.0, drag: 2.6, stretch: 2.0,
+          });
+          this.waves.spawn(ev.x!, ev.z!, 0.4, (ev.radius ?? 2.2) * 2.4, 0xffb257, 0.4, 1.0);
+          this.camera.punch(0.22);
           break;
         }
         case 'bossSpawn': {

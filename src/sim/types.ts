@@ -50,6 +50,22 @@ export interface Enemy {
   scripted: boolean;
   /** 死亡后的倒地动画剩余时间；> 0 时仍需渲染。 */
   dying: number;
+
+  // ── 行为专用状态（只有对应种类会用到）────────────────────────
+  /** 吐酸者/跳跃者的技能冷却。 */
+  abilityCd?: number;
+  /** 已抛出但还没落地的酸液：剩余飞行时间 + 落点。 */
+  spitT?: number;
+  spitX?: number;
+  spitZ?: number;
+  /** 跳跃者的滞空进度（0 = 在地面），以及起跳点与落点。 */
+  leapT?: number;
+  leapFromX?: number;
+  leapFromZ?: number;
+  leapToX?: number;
+  leapToZ?: number;
+  /** 跳跃者当前的离地高度，渲染层直接读它。 */
+  airY?: number;
 }
 
 export interface Shell {
@@ -134,6 +150,10 @@ export type SimEventType =
   | 'midbossAbility'    // 冲击波预警出现
   | 'midbossAbilityHit' // 冲击波命中
   | 'goldPickup'        // 走过路边的金币堆
+  | 'spitterFire'       // 吐酸者抛射（落点预警出现）
+  | 'spitterHit'        // 酸液落地
+  | 'leaperJump'        // 跳跃者起跳
+  | 'leaperLand'        // 跳跃者落进阵型
   | 'win'
   | 'lose';
 

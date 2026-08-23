@@ -122,7 +122,7 @@ const LEVEL_1: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'add', value: 55 }, wave: swarm(230, 24), hint: '蜂群' },
-      right: { gate: { type: 'firerate', value: 45 }, wave: elite([{ kind: 'brute', count: 4 }, { kind: 'screamer', count: 4 }]), hint: '精英' },
+      right: { gate: { type: 'firerate', value: 45 }, wave: elite([{ kind: 'brute', count: 3 }, { kind: 'screamer', count: 3 }, { kind: 'leaper', count: 4 }]), hint: '精英' },
     },
     { t: 'run', len: 70 },
     { t: 'wave', wave: swarm(200, 20) },
@@ -152,7 +152,7 @@ const LEVEL_2: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'cannon', value: 4 }, wave: swarm(280, 34), hint: '蜂群' },
-      right: { gate: { type: 'armor', value: 55 }, wave: elite([{ kind: 'brute', count: 5 }, { kind: 'titan', count: 1 }]), hint: '精英' },
+      right: { gate: { type: 'armor', value: 55 }, wave: elite([{ kind: 'brute', count: 4 }, { kind: 'titan', count: 1 }, { kind: 'spitter', count: 5 }]), hint: '精英' },
     },
     { t: 'run', len: 73 },
     // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
@@ -163,7 +163,7 @@ const LEVEL_2: LevelDef = {
       t: 'choice',
       // 安全通道 vs 火力飞跃
       left:  { gate: { type: 'div', value: 2 }, wave: swarm(40), hint: '安全' },
-      right: { gate: { type: 'weapon', value: 2 }, wave: elite([{ kind: 'titan', count: 2 }, { kind: 'brute', count: 4 }]), hint: '精英' },
+      right: { gate: { type: 'weapon', value: 2 }, wave: elite([{ kind: 'titan', count: 2 }, { kind: 'brute', count: 3 }, { kind: 'armored', count: 5 }]), hint: '精英' },
     },
     { t: 'run', len: 64 },
     { t: 'wave', wave: swarm(300, 40) },
@@ -185,7 +185,7 @@ const LEVEL_3: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'add', value: 60 }, wave: swarm(260, 36), hint: '蜂群' },
-      right: { gate: { type: 'firerate', value: 55 }, wave: elite([{ kind: 'brute', count: 4 }, { kind: 'titan', count: 1 }]), hint: '精英' },
+      right: { gate: { type: 'firerate', value: 55 }, wave: elite([{ kind: 'brute', count: 3 }, { kind: 'titan', count: 1 }, { kind: 'leaper', count: 8 }]), hint: '精英' },
     },
     { t: 'run', len: 58 },
     { t: 'block', hp: 26000, span: 'full' },
@@ -193,7 +193,7 @@ const LEVEL_3: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'cannon', value: 6 }, wave: swarm(340, 44), hint: '蜂群' },
-      right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 3 }, { kind: 'screamer', count: 4 }]), hint: '精英' },
+      right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 2 }, { kind: 'screamer', count: 4 }, { kind: 'armored', count: 8 }]), hint: '精英' },
     },
     { t: 'run', len: 67 },
     // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
@@ -203,7 +203,7 @@ const LEVEL_3: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'mul', value: 2 }, wave: swarm(380, 50), hint: '蜂群' },
-      right: { gate: { type: 'armor', value: 70 }, wave: elite([{ kind: 'titan', count: 4 }]), hint: '精英' },
+      right: { gate: { type: 'armor', value: 70 }, wave: elite([{ kind: 'titan', count: 3 }, { kind: 'spitter', count: 9 }]), hint: '精英' },
     },
     { t: 'run', len: 61 },
     { t: 'wave', wave: swarm(360, 48) },
@@ -225,7 +225,7 @@ const LEVEL_4: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'mul', value: 3 }, wave: swarm(320, 46), hint: '蜂群' },
-      right: { gate: { type: 'weapon', value: 2 }, wave: elite([{ kind: 'brute', count: 5 }, { kind: 'titan', count: 2 }]), hint: '精英' },
+      right: { gate: { type: 'weapon', value: 2 }, wave: elite([{ kind: 'brute', count: 4 }, { kind: 'titan', count: 2 }, { kind: 'spitter', count: 10 }]), hint: '精英' },
     },
     { t: 'run', len: 55 },
     { t: 'block', hp: 62000, span: 'full' },
@@ -233,7 +233,7 @@ const LEVEL_4: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'cannon', value: 8 }, wave: swarm(420, 64), hint: '蜂群' },
-      right: { gate: { type: 'armor', value: 80 }, wave: elite([{ kind: 'titan', count: 4 }, { kind: 'brute', count: 6 }]), hint: '精英' },
+      right: { gate: { type: 'armor', value: 80 }, wave: elite([{ kind: 'titan', count: 3 }, { kind: 'brute', count: 5 }, { kind: 'armored', count: 12 }]), hint: '精英' },
     },
     { t: 'run', len: 48 },
     // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
@@ -243,7 +243,7 @@ const LEVEL_4: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'sub', value: 40 }, wave: swarm(60), hint: '安全' },
-      right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 6 }, { kind: 'screamer', count: 6 }]), hint: '精英' },
+      right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 5 }, { kind: 'screamer', count: 5 }, { kind: 'leaper', count: 14 }]), hint: '精英' },
     },
     { t: 'run', len: 58 },
     { t: 'wave', wave: swarm(420, 70) },
@@ -265,7 +265,7 @@ const LEVEL_5: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'firerate', value: 70 }, wave: swarm(400, 70), hint: '蜂群' },
-      right: { gate: { type: 'weapon', value: 2 }, wave: elite([{ kind: 'titan', count: 3 }, { kind: 'brute', count: 8 }]), hint: '精英' },
+      right: { gate: { type: 'weapon', value: 2 }, wave: elite([{ kind: 'titan', count: 3 }, { kind: 'brute', count: 6 }, { kind: 'armored', count: 14 }]), hint: '精英' },
     },
     { t: 'run', len: 49 },
     { t: 'block', hp: 140000, span: 'full' },
@@ -273,7 +273,7 @@ const LEVEL_5: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'add', value: 190 }, wave: swarm(520, 90), hint: '蜂群' },
-      right: { gate: { type: 'armor', value: 90 }, wave: elite([{ kind: 'titan', count: 6 }]), hint: '精英' },
+      right: { gate: { type: 'armor', value: 90 }, wave: elite([{ kind: 'titan', count: 5 }, { kind: 'spitter', count: 14 }]), hint: '精英' },
     },
     { t: 'run', len: 58 },
     // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
@@ -283,7 +283,7 @@ const LEVEL_5: LevelDef = {
     {
       t: 'choice',
       left:  { gate: { type: 'cannon', value: 10 }, wave: swarm(600, 110), hint: '蜂群' },
-      right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 9 }]), hint: '精英' },
+      right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'titan', count: 7 }, { kind: 'leaper', count: 18 }, { kind: 'armored', count: 8 }]), hint: '精英' },
     },
     { t: 'run', len: 67 },
     { t: 'wave', wave: elite([{ kind: 'titan', count: 5 }, { kind: 'brute', count: 10 }, { kind: 'walker', count: 260 }], 30) },

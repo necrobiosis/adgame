@@ -1,4 +1,4 @@
-import { ENEMY_STATS, MELEE, ROAD_HALF, SCREAMER_AURA, SOLDIER, type EnemyKind } from '../config/balance';
+import { ENEMY_STATS, LEAPER, MELEE, ROAD_HALF, SCREAMER_AURA, SOLDIER, SPITTER, type EnemyKind } from '../config/balance';
 import type { Rng } from '../core/Rng';
 import type { WaveSpec } from '../config/levels';
 import type { Squad } from './Squad';
@@ -72,14 +72,24 @@ export class EnemyPool {
       damageMul: 1,
       scripted: opts?.scripted ?? false,
       dying: 0,
+      abilityCd: this.rng.range(0.2, 0.9),
+      leapT: 0,
+      airY: 0,
     };
     this.list.push(e);
     return e;
   }
 
-  /** 造成伤害。返回这一击拿到的金币（没击杀就是 0）。 */
-  damage(e: Enemy, amount: number, out: SimEvent[]): number {
+  /**
+   * 造成伤害。返回这一击拿到的金币（没击杀就是 0）。
+   *
+   * `splash` 表示这是火炮溅射——重甲尸的 bulletResist 只挡子弹，不挡溅射。
+   * 这条区分是"火炮门"和"武器门"第一次有本质差别的地方。
+   */
+  damage(e: Enemy, amount: number, out: SimEvent[], splash = false): number {
     if (!e.alive) return 0;
+    const resist = splash ? 0 : (ENEMY_STATS[e.kind].bulletResist ?? 0);
+    amount *= 1 - resist;
     const dealt = Math.min(e.hp, amount);
     e.hp -= dealt;
     e.flash = 0.09;
@@ -145,6 +155,25 @@ export class EnemyPool {
         continue;
       }
 
+      // ── 吐酸者：停在射程外抛射 ────────────────────────────
+      if (e.kind === 'spitter') {
+        this.updateSpitter(dt, e, squad, speed, out);
+        continue;
+      }
+      // ── 跳跃者：滞空中不参与任何地面逻辑 ──────────────────
+      if (e.kind === 'leaper' && (e.leapT ?? 0) > 0) {
+        this.updateLeap(dt, e, out);
+        continue;
+      }
+      if (e.kind === 'leaper') {
+        e.abilityCd = (e.abilityCd ?? 0) - dt;
+        const gap = e.z - squad.z;
+        if ((e.abilityCd ?? 0) <= 0 && gap > 2 && gap < LEAPER.triggerRange) {
+          this.startLeap(e, squad, out);
+          continue;
+        }
+      }
+
       // 已经压到接触面上的，交给下面的排队逻辑统一处理
       const reach = frontZ + e.scale * 0.55;
       if (e.z <= reach + MELEE.queueDepth * 0.5 && Math.abs(e.x - squad.x) <= halfW + e.scale) {
@@ -163,6 +192,26 @@ export class EnemyPool {
       e.phase += dt * (3.2 + speed * 0.55);
     }
 
+    // 跳跃者落地的范围伤害。放在这里统一结算，updateLeap 只负责抛物线。
+    const nEvents = out.length;
+    for (let i = 0; i < nEvents; i++) {
+      const ev = out[i]!;
+      if (ev.type !== 'leaperLand') continue;
+      for (const u of squad.units) {
+        if (!u.alive) continue;
+        const dx = u.x - (ev.x ?? 0);
+        const dz = u.z - (ev.z ?? 0);
+        if (dx * dx + dz * dz > LEAPER.radius * LEAPER.radius) continue;
+        u.hp -= LEAPER.damage;
+        u.flash = 0.12;
+        if (u.hp <= 0) {
+          u.alive = false;
+          squad.markDirty();
+          out.push({ type: 'soldierDown', x: u.x, y: 0.9, z: u.z });
+        }
+      }
+    }
+
     this.resolveMelee(dt, squad, contact, out);
     this.separateBig(dt);
     this.contactCount = contact.length;
@@ -177,6 +226,91 @@ export class EnemyPool {
       this.list[w++] = e;
     }
     this.list.length = w;
+  }
+
+  /**
+   * 吐酸者：压到 standoff 距离就停下，之后原地抛射。
+   * 酸液有 telegraph 秒的滞空，落点在抛出的那一刻就定死——所以玩家
+   * 是在躲一个"已经飞出来的东西"，横向移动真的能躲开。
+   */
+  private updateSpitter(dt: number, e: Enemy, squad: Squad, speed: number, out: SimEvent[]): void {
+    const gap = e.z - squad.z;
+    // 飞行中的酸液
+    if ((e.spitT ?? 0) > 0) {
+      e.spitT = (e.spitT ?? 0) - dt;
+      if ((e.spitT ?? 0) <= 0) {
+        e.spitT = 0;
+        const hx = e.spitX ?? e.x;
+        const hz = e.spitZ ?? e.z;
+        let hits = 0;
+        for (const u of squad.units) {
+          if (!u.alive) continue;
+          const dx = u.x - hx;
+          const dz = u.z - hz;
+          if (dx * dx + dz * dz > SPITTER.radius * SPITTER.radius) continue;
+          u.hp -= SPITTER.damage * e.damageMul;
+          u.flash = 0.12;
+          hits++;
+          if (u.hp <= 0) {
+            u.alive = false;
+            squad.markDirty();
+            out.push({ type: 'soldierDown', x: u.x, y: 0.9, z: u.z });
+          }
+        }
+        out.push({ type: 'spitterHit', x: hx, y: 0.3, z: hz, radius: SPITTER.radius, amount: hits });
+      }
+    }
+
+    if (gap > SPITTER.standoff) {
+      // 还没到位：正常往前压。冷却在路上就开始转，否则等它站定再从头数
+      // 三秒，往往还没开过一次火就已经被打死了。
+      e.abilityCd = (e.abilityCd ?? 0) - dt;
+      e.z -= speed * dt;
+      const dx = clamp(squad.x + e.laneOffset * 5, -ROAD_HALF + 0.8, ROAD_HALF - 0.8) - e.x;
+      e.x += Math.sign(dx) * Math.min(Math.abs(dx), speed * 0.5 * dt);
+      e.phase += dt * (3.2 + speed * 0.55);
+      return;
+    }
+
+    // 到位了：站定开火，稍微侧向游走避免叠成一堆
+    e.phase += dt * 1.6;
+    e.x += Math.sin(e.phase * 0.6 + e.id) * dt * 1.2;
+    e.x = clamp(e.x, -ROAD_HALF + 0.8, ROAD_HALF - 0.8);
+    e.abilityCd = (e.abilityCd ?? 0) - dt;
+    if ((e.abilityCd ?? 0) > 0 || (e.spitT ?? 0) > 0) return;
+    e.abilityCd = SPITTER.cooldown;
+    e.spitT = SPITTER.telegraph;
+    // 往方阵当前位置抛，带一点散布——预判量刚好让"一直站着不动"必被命中
+    e.spitX = clamp(squad.x + this.rng.range(-2.2, 2.2), -ROAD_HALF + 1, ROAD_HALF - 1);
+    e.spitZ = squad.z + this.rng.range(-1, squad.depth * 0.6);
+    out.push({
+      type: 'spitterFire', x: e.x, y: 1.2 * e.scale, z: e.z,
+      tx: e.spitX, ty: 0.2, tz: e.spitZ, radius: SPITTER.radius,
+    });
+  }
+
+  /** 跳跃者起跳：落点直接扎进方阵中后段，越过整个前排。 */
+  private startLeap(e: Enemy, squad: Squad, out: SimEvent[]): void {
+    e.leapT = LEAPER.airTime;
+    e.leapFromX = e.x;
+    e.leapFromZ = e.z;
+    e.leapToX = clamp(squad.x + this.rng.range(-squad.halfWidth, squad.halfWidth), -ROAD_HALF + 1, ROAD_HALF - 1);
+    e.leapToZ = squad.z - LEAPER.landDepth * this.rng.range(0.5, 1);
+    e.abilityCd = LEAPER.cooldown;
+    out.push({ type: 'leaperJump', x: e.x, y: 0.6, z: e.z, tx: e.leapToX, ty: 0, tz: e.leapToZ });
+  }
+
+  /** 滞空段：走一条抛物线，落地时对落点周围造成一次伤害。 */
+  private updateLeap(dt: number, e: Enemy, out: SimEvent[]): void {
+    e.leapT = Math.max(0, (e.leapT ?? 0) - dt);
+    const t = 1 - (e.leapT ?? 0) / LEAPER.airTime;
+    e.x = (e.leapFromX ?? e.x) + ((e.leapToX ?? e.x) - (e.leapFromX ?? e.x)) * t;
+    e.z = (e.leapFromZ ?? e.z) + ((e.leapToZ ?? e.z) - (e.leapFromZ ?? e.z)) * t;
+    e.airY = Math.sin(t * Math.PI) * 4.2;
+    e.phase += dt * 2;
+    if ((e.leapT ?? 0) > 0) return;
+    e.airY = 0;
+    out.push({ type: 'leaperLand', x: e.x, y: 0.2, z: e.z, radius: LEAPER.radius });
   }
 
   /**

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BOSS, MIDBOSS, ROAD_HALF } from '../config/balance';
+import { BOSS, MIDBOSS, ROAD_HALF, SPITTER } from '../config/balance';
 import { LEVELS } from '../config/levels';
 import { GameView } from '../render/GameView';
 import { Renderer } from '../render/Renderer';
@@ -344,6 +344,11 @@ export class Game {
         case 'midbossAbility': this.audio.telegraph(MIDBOSS.shock.telegraph, 'shock', pan(ev.x)); break;
         case 'bossSlamHit':
         case 'midbossAbilityHit': this.audio.explosion(pan(ev.x)); break;
+        // 酸液抛射：飞行时长就是预警时长，听觉上和地上的圈同步
+        case 'spitterFire': this.audio.telegraph(SPITTER.telegraph, 'shock', pan(ev.tx)); break;
+        case 'spitterHit': this.audio.acidSplash(pan(ev.x)); break;
+        case 'leaperJump': this.audio.leap(pan(ev.x)); break;
+        case 'leaperLand': this.audio.footstep(pan(ev.x)); break;
         case 'bossLightningHit':
           this.audio.thunderCrack(pan(ev.x));
           this.floats.flash();
