@@ -330,7 +330,10 @@ export class GameView {
     let cz = world.squad.z;
     if (ins.target === 'boss' && world.boss.enemy) {
       cx = world.boss.enemy.x;
-      cy = world.boss.enemy.scale * 1.35;
+      // Boss 几何体本身按 2.9 米建的模，还要再乘一层实例 scale（4.4 左右），
+      // 真实站高逼近 12 米——不能只按 scale 本身估头部高度，那样镜头会
+      // 钉在膝盖附近往上看天。
+      cy = world.boss.enemy.scale * 2.9 * 0.85;
       cz = world.boss.enemy.z;
     } else if (ins.target === 'cannon') {
       const c = world.squad.units.find((u) => u.alive && u.isCannon);
