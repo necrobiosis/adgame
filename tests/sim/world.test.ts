@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ENDLESS_ID } from '../../src/config/levels';
 import { World } from '../../src/sim/World';
-import { BUFF_CAP, SOLDIER, type UpgradeId } from '../../src/config/balance';
-import { LANE_SIGN } from '../../src/sim/lanes';
+import { BUFF_CAP, ROAD_HALF, SOLDIER, type UpgradeId } from '../../src/config/balance';
+import { LANE_SIGN, laneBounds, laneCenterX } from '../../src/sim/lanes';
 import { LEVELS_MAX_UPGRADES, NO_UPGRADES, upgrades as mkUpgrades } from './fixtures';
 
 
@@ -69,40 +69,35 @@ describe('World', () => {
     expect(w.squad.weaponLevel).toBe(1);
   });
 
-  it('全宽方块会把前进拖到极慢，打掉后恢复速度', () => {
-    // 设计上方阵**永远不会被彻底钉死**——全宽方块留了两条路肩缝，硬挤也能
-    // 挤过去，只是慢得像蜗牛。停下来干等的手感太糟，所以这里验的是
-    // "慢到几乎不动 + 打掉之后立刻恢复"，而不是"完全静止"。
-    // 这条测的是方块的推进机制，不是难度曲线——给一套够用的升级，
-    // 保证方阵能活着走到方块跟前，否则测的就变成"裸配能不能撑到那儿"了
-    const kitted = mkUpgrades({ squad: 10, damage: 8, fireRate: 6, cannon: 4, armor: 8, weapon: 2 });
-    const w = new World({ levelId: 2, upgrades: kitted, seed: 3 });
-    const full = w.blocks.find((b) => b.span === 'full')!;
-    const dt = 1 / 60;
-    let crawl = Infinity;
-    let openRoad = 0;
-    let movedWhileBlocked = false;
-    let passed = false;
-    let t = 0;
-    while (w.phase === 'running' && t < 300) {
-      w.steer = LANE_SIGN.left;
-      const z0 = w.squad.z;
-      w.step(dt);
-      w.drainEvents();
-      const speed = (w.squad.z - z0) / dt;
-      const atBlock = full.alive && w.squad.z >= full.z - 6 && w.squad.z <= full.z + 2;
-      if (atBlock) {
-        crawl = Math.min(crawl, speed);
-        if (speed > 0) movedWhileBlocked = true;
-      } else if (w.squad.z < full.z - 30 && speed > 0) {
-        openRoad = Math.max(openRoad, speed);
+  it('墙只占三排里的一排，站到那一排上才打得到它', () => {
+    // 这是新玩法的核心决策点：墙不再挡路，也不再"顺路擦过去就拆了"。
+    // 走到它那一排 = 火力砸在墙上、拿走奖励；走别的排 = 完全碰不到它。
+    // "错过就没有奖励"必须是真的，否则这个选择不成立。
+    const kitted = mkUpgrades({ squad: 10, damage: 8, fireRate: 6, cannon: 0, armor: 8, weapon: 2 });
+    const run = (follow: boolean) => {
+      const w = new World({ levelId: 2, upgrades: kitted, seed: 3 });
+      const wall = w.blocks[0]!;
+      const [x0, x1] = laneBounds(wall.lane);
+      const wallX = (x0 + x1) / 2;
+      // follow：一路待在墙那一排；否则一路待在最远的那一排
+      const wantX = follow ? wallX : (wallX > 0 ? -ROAD_HALF + 2 : ROAD_HALF - 2);
+      const dt = 1 / 60;
+      let t = 0;
+      while (w.phase === 'running' && t < 300 && w.squad.z < wall.z + 10) {
+        w.steer = Math.abs(wantX - w.squad.x) > 0.3 ? Math.sign(wantX - w.squad.x) : 0;
+        w.step(dt);
+        w.drainEvents();
+        t += dt;
       }
-      if (w.squad.z > full.z + 4) passed = true;
-      t += dt;
-    }
-    expect(movedWhileBlocked, '顶着方块时仍然应当在往前挪，不能被彻底钉死').toBe(true);
-    expect(passed, '最终应当越过方块（打掉了，或者从路肩缝里挤过去）').toBe(true);
-    expect(crawl, '挤缝时的速度应当远低于空旷路段').toBeLessThan(openRoad * 0.4);
+      return { hp: wall.hp, maxHp: wall.maxHp };
+    };
+    // 墙确实只占一排，不是全宽
+    const probe = new World({ levelId: 2, upgrades: kitted, seed: 3 });
+    const wall = probe.blocks[0]!;
+    expect(wall.x1 - wall.x0).toBeLessThan(ROAD_HALF * 2 * 0.5);
+
+    expect(run(false).hp, '走别的排却把墙打掉了——那"错过"就没有代价').toBe(wall.maxHp);
+    expect(run(true).hp, '走到墙那一排上却一点都没打到它').toBeLessThan(wall.maxHp);
   });
 
   it('升级会真实提升战斗力：满配比裸配打得更远/更快', () => {
@@ -205,5 +200,93 @@ describe('无尽模式', () => {
       w.drainEvents();
     }
     expect(w.phase).not.toBe('won');
+  });
+});
+
+describe('三排 · 枪不自瞄', () => {
+  it('只打得到自己那一排，隔壁排一枪都吃不到', () => {
+    // 这是新玩法的地基。判定必须干脆：站在中间那一排，左右两排的怪
+    // 一点伤害都不该吃到——否则"该站哪一排"就不是一个真问题。
+    const w = new World({ levelId: 1, upgrades: mkUpgrades({ squad: 8, weapon: 3 }), seed: 5 });
+    w.enemies.clear();
+    w.squad.x = laneCenterX('mid');
+    w.squad.layout();
+    const put = (lane: 'left' | 'mid' | 'right') => {
+      const e = w.enemies.spawn('walker', laneCenterX(lane), w.squad.z + 18);
+      e.laneX = e.x;
+      e.hp = e.maxHp = 1e6;
+      return e;
+    };
+    const [l, m, r] = [put('left'), put('mid'), put('right')];
+    const dt = 1 / 60;
+    for (let i = 0; i < 60; i++) {
+      w.step(dt);
+      w.drainEvents();
+    }
+    expect(m.hp, '正前方那一排完全没挨打').toBeLessThan(m.maxHp);
+    expect(l.hp, '隔壁排不该吃到子弹').toBe(l.maxHp);
+    expect(r.hp, '隔壁排不该吃到子弹').toBe(r.maxHp);
+  });
+
+  it('大炮是曲射的，砸得到隔壁排', () => {
+    // 步枪只管自己那一排，火炮能越排——"炮兵编制"这条升级线的全部价值
+    // 就在这一条上，它和"武器等级"从此不是同一个东西。
+    const w = new World({ levelId: 1, upgrades: mkUpgrades({ squad: 8, cannon: 4, weapon: 3 }), seed: 5 });
+    w.enemies.clear();
+    w.squad.x = laneCenterX('mid');
+    w.squad.layout();
+    const far = w.enemies.spawn('walker', laneCenterX('left'), w.squad.z + 20);
+    far.laneX = far.x;
+    far.hp = far.maxHp = 1e6;
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * 6; i++) {
+      w.step(dt);
+      w.drainEvents();
+    }
+    expect(far.hp, '隔壁排的怪一点炮火都没吃到').toBeLessThan(far.maxHp);
+  });
+
+  it('远处的敌人守着自己那一排走，不会一出生就朝方阵聚过来', () => {
+    // "看得见哪一排有什么"是选排的前提。敌人如果一出生就朝方阵收拢，
+    // 三排就只是画在地上的线。
+    const w = new World({ levelId: 1, upgrades: mkUpgrades(), seed: 5 });
+    w.enemies.clear();
+    w.squad.x = laneCenterX('right');
+    w.squad.layout();
+    const e = w.enemies.spawn('walker', laneCenterX('left'), w.squad.z + 70);
+    e.laneX = e.x;
+    const x0 = e.x;
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * 3; i++) {
+      w.step(dt);
+      w.drainEvents();
+    }
+    expect(Math.abs(e.x - x0), '还隔着几十米就已经开始横向抄过来了').toBeLessThan(1.5);
+    expect(e.z).toBeLessThan(w.squad.z + 70);
+  });
+});
+
+describe('奖励墙', () => {
+  it('满配玩家走进那一排时，墙是真的打得穿的', () => {
+    // "错过就没有奖励"要成立，前提是**没错过的时候真的拿得到**。
+    // 一堵谁也打不穿的墙不是决策点，是个陷阱：玩家付了慢速的代价，
+    // 什么都没换到。
+    const w = new World({
+      levelId: 2,
+      upgrades: LEVELS_MAX_UPGRADES,
+      loadout: ['squad', 'damage', 'fireRate', 'weapon', 'cannon'],
+      seed: 3,
+    });
+    const wall = w.blocks.find((b) => b.bonus > 0)!;
+    const wantX = laneCenterX(wall.lane);
+    const dt = 1 / 60;
+    let t = 0;
+    while (w.phase === 'running' && t < 120 && w.squad.z < wall.z + 12) {
+      w.steer = Math.abs(wantX - w.squad.x) > 0.3 ? Math.sign(wantX - w.squad.x) : 0;
+      w.step(dt);
+      w.drainEvents();
+      t += dt;
+    }
+    expect(wall.alive, `满配走进墙那一排，${wall.maxHp} 血的墙也没打穿`).toBe(false);
   });
 });

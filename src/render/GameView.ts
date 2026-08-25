@@ -19,6 +19,8 @@ import { createLights, createSky, createSkyEnvironment, skyForLevel, type SceneL
 import { createProps, propsForLevel } from './env/Props';
 import { Weather, type WeatherKind } from './env/Weather';
 import { AreaTelegraph } from './fx/AreaTelegraph';
+import { FireLane } from './fx/FireLane';
+import { fireCorridor } from '../sim/Enemies';
 import { Decals } from './fx/Decals';
 import { FlashLights } from './fx/FlashLights';
 import { GoldBurst } from './fx/GoldBurst';
@@ -153,17 +155,24 @@ export interface FloatRequest {
  * 天色本身由 skyForLevel() 给（同时也是 IBL 环境光），这里只补天色之外
  * 那几样能把关卡拉开距离的东西。关卡名承诺的场景，靠这张表兑现。
  */
+/**
+ * 每关的天气 / 窗灯 / 雾。
+ *
+ * 雾的近端全部推到了一百米开外：路切成三排、大怪从一百五十米外开始走过来
+ * 之后，中远景不再只是气氛，而是玩家做决策要读的信息。雾太近的话，
+ * "那一排远处有三只泰坦"这句话玩家根本看不到。
+ */
 const LEVEL_FLAVOUR: readonly { weather: WeatherKind; window: number; fogNear: number; fogFar: number }[] = [
   // 一 · 跨海大桥：远海方向飘来的灰
-  { weather: 'ash',   window: 0xff9c3a, fogNear: 95, fogFar: 430 },
+  { weather: 'ash',   window: 0xff9c3a, fogNear: 105, fogFar: 430 },
   // 二 · 高架断层：冷雨，视野最差
-  { weather: 'rain',  window: 0xbfd4e0, fogNear: 70, fogFar: 330 },
+  { weather: 'rain',  window: 0xbfd4e0, fogNear: 105, fogFar: 420 },
   // 三 · 尸山阶梯：腐气蒸腾，灰更重
-  { weather: 'ash',   window: 0xc8e05a, fogNear: 60, fogFar: 300 },
+  { weather: 'ash',   window: 0xc8e05a, fogNear: 105, fogFar: 420 },
   // 四 · 猩红黎明：天上下火星
-  { weather: 'ember', window: 0xff7a3a, fogNear: 80, fogFar: 380 },
+  { weather: 'ember', window: 0xff7a3a, fogNear: 105, fogFar: 420 },
   // 五 · 世界终点：火星 + 最近的雾，世界正在合拢
-  { weather: 'ember', window: 0xd8b0ff, fogNear: 55, fogFar: 280 },
+  { weather: 'ember', window: 0xd8b0ff, fogNear: 105, fogFar: 420 },
 ];
 
 export class GameView {
@@ -227,6 +236,8 @@ export class GameView {
   private readonly midRing = new TelegraphRing();
   /** 矩形/条状预警：半场毒爆、带缺口的火墙、扫射光束共用这一个池。 */
   private readonly areaTg = new AreaTelegraph(6);
+  /** 火线走廊的地面指示——枪不自瞄，火力落在哪必须看得见。 */
+  private readonly fireLane = new FireLane();
   /** 当前这一关的 Boss 种类——换关时要重建 Boss 的几何体。 */
   private bossKind: BossKind = 'overlord';
   /** 上一帧 Boss 的 z——用来判断这一帧是不是正在高速冲锋，从而甩出拖尾电弧。 */
@@ -445,6 +456,7 @@ export class GameView {
       this.ring.mesh, this.lane.mesh, this.reticle.mesh, this.lightning.group, this.midRing.mesh,
       this.ambientSmoke.mesh, this.dragon.group,
       this.decals.mesh, this.waves.mesh, this.flashes.group, this.gibs.mesh, this.areaTg.mesh,
+      this.fireLane.mesh,
     );
   }
 
@@ -595,6 +607,11 @@ export class GameView {
 
     this.syncEnemies(world);
     this.syncSquad(world);
+    // 火线：跟着方阵，宽度就是判定用的走廊宽度，一米不差
+    this.fireLane.update(
+      world.squad.x, world.squad.z,
+      fireCorridor(world.squad), world.squad.weapon.range, world.squad.weapon.tracer,
+    );
     this.syncShells(world);
     this.syncBoss(world, dt);
     this.syncMidBoss(world);
@@ -694,7 +711,18 @@ export class GameView {
     const budget = this.r.quality.enemyInstances;
     if (vis.length > budget) {
       const sz = world.squad.z;
-      vis.sort((a, b) => Math.abs(a.z - sz) - Math.abs(b.z - sz));
+      // 大块头永远画，不管它离得多远。
+      //
+      // 单纯按距离截断的话，脚下一堆杂兵就会把一百多米外那几只泰坦挤掉——
+      // 而"远处有个大东西正在慢慢走过来"恰恰是这个游戏最重要的一条预告：
+      // 玩家要靠它提前决定走哪一排、要不要现在把炮攒着。杂兵在雾里少几个
+      // 没人看得出来，少一只泰坦是致命的信息缺失。
+      vis.sort((a, b) => {
+        const ba = ENEMY_STATS[a.kind].scale >= 1.5 ? 1 : 0;
+        const bb = ENEMY_STATS[b.kind].scale >= 1.5 ? 1 : 0;
+        if (ba !== bb) return bb - ba;
+        return Math.abs(a.z - sz) - Math.abs(b.z - sz);
+      });
       vis.length = budget;
     }
 

@@ -30,9 +30,11 @@ export function createBridge(length: number, rng: Rng, envDetail = 1): THREE.Gro
       ctx.fillStyle = `rgba(${Math.round(140 * v)},${Math.round(142 * v)},${Math.round(148 * v)},0.5)`;
       ctx.fillRect(Math.random() * w, Math.random() * h, 2, 2);
     }
-    ctx.fillStyle = '#cdcabf';
-    for (const cx of [w * 0.33, w * 0.67]) {
-      for (let y = 0; y < h; y += 96) ctx.fillRect(cx - 4, y, 8, 54);
+    // 车道分隔线。路被切成三排，而"我站在哪一排"是这个游戏每一秒都要回答的
+    // 问题——分隔线必须画得够粗够亮，玩家扫一眼就分得清三条排的边界在哪。
+    ctx.fillStyle = '#e6e2d2';
+    for (const cx of [w / 3, (w * 2) / 3]) {
+      for (let y = 0; y < h; y += 88) ctx.fillRect(cx - 6, y, 12, 62);
     }
     ctx.fillStyle = '#c4c1b6';
     ctx.fillRect(10, 0, 6, h);

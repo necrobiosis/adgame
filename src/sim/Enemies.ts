@@ -1,7 +1,8 @@
-import { BOMBER, ENEMY_STATS, LEAPER, MELEE, ROAD_HALF, SCREAMER_AURA, SIZE_JITTER, SOLDIER, SPITTER, type EnemyKind } from '../config/balance';
+import { BIG_SPAWN_AHEAD, BOMBER, ENEMY_STATS, FIRE_CORRIDOR_PAD, LANE_LOCK_RANGE, LEAPER, MELEE, ROAD_HALF, SCREAMER_AURA, SIZE_JITTER, SOLDIER, SPITTER, type EnemyKind } from '../config/balance';
 import type { Rng } from '../core/Rng';
 import type { WaveSpec } from '../config/levels';
 import type { Squad } from './Squad';
+import { LANE_ORDER, LANE_WIDTH, laneCenterX } from './lanes';
 import type { BlockObstacle, Enemy, SimEvent } from './types';
 
 /** 尸体倒地动画时长。 */
@@ -40,23 +41,42 @@ export class EnemyPool {
     return n;
   }
 
+  /**
+   * 刷一波怪。
+   *
+   * 每一组怪都长在**某一排**上：要么关卡直接指定（`g.lane`），要么按组序
+   * 轮着分排。这一条是新玩法的地基——子弹只打正前方，所以"这一排有什么"
+   * 必须是一个玩家看得见、也能提前判断的事实，而不是一片糊在整条路上的
+   * 随机噪声。排内仍然有横向抖动，尸潮不会站成一条直线。
+   */
   spawnWave(wave: WaveSpec, atZ: number, squadX: number): void {
-    const ahead = wave.spawnAhead ?? DEFAULT_SPAWN_AHEAD;
+    void squadX;
     const depth = wave.depth ?? 22;
-    const baseZ = atZ + ahead;
+    const laneRoll = Math.floor(this.rng.next() * LANE_ORDER.length);
+    let gi = -1;
     for (const g of wave.groups) {
-      const big = ENEMY_STATS[g.kind].scale >= 1.5;
+      gi++;
+      const st = ENEMY_STATS[g.kind];
+      const big = st.scale >= 1.5;
+      // 大块头老远就要看得见：它们走得慢，60 米外淡入等于凭空冒出来
+      const ahead = wave.spawnAhead ?? (big ? BIG_SPAWN_AHEAD : DEFAULT_SPAWN_AHEAD);
+      const baseZ = atZ + ahead;
+      // 没指定就随机分排——固定按组序轮的话，"第一组永远在最右边"会被玩家
+      // 一眼背下来，选排就退化成背板。同一波里的不同组尽量错开，
+      // 免得整波怪全挤在一排上。
+      const lane = g.lane ?? LANE_ORDER[(laneRoll + gi) % LANE_ORDER.length]!;
+      const lx = laneCenterX(lane);
+      // 排内的横向散布：留出体型的余量，大怪不会半个身子压到隔壁排
+      const halfSpan = Math.max(0.6, LANE_WIDTH / 2 - st.scale * 0.9);
       for (let i = 0; i < g.count; i++) {
         const t = g.count > 1 ? i / (g.count - 1) : 0.5;
-        // 沿纵深分层铺开，横向铺满整条路 —— 还原广告里"尸潮填满路面"的密度
         const z = baseZ + t * depth + this.rng.range(-1.6, 1.6);
-        const spread = ROAD_HALF - 0.8;
-        // 杂兵用中心密、边缘疏的分布堆出人潮感；
-        // 精英只有几只，必须均匀铺开，否则会全叠在路中央变成一团
-        const x = big
-          ? (g.count > 1 ? -spread + ((i + 0.5) / g.count) * spread * 2 : 0) + this.rng.range(-1, 1)
-          : this.rng.range(-spread, spread) * 0.5 + this.rng.range(-spread, spread) * 0.5 + squadX * 0.15;
-        this.spawn(g.kind, clamp(x, -spread, spread), z);
+        // 杂兵中间密两边疏，堆出人潮；精英只有几只，均匀铺开
+        const off = big
+          ? (g.count > 1 ? -halfSpan + ((i + 0.5) / g.count) * halfSpan * 2 : 0)
+          : (this.rng.range(-halfSpan, halfSpan) + this.rng.range(-halfSpan, halfSpan)) * 0.5;
+        const e = this.spawn(g.kind, clamp(lx + off, -ROAD_HALF + 0.8, ROAD_HALF - 0.8), z);
+        e.laneX = e.x;
       }
     }
   }
@@ -78,6 +98,8 @@ export class EnemyPool {
       scale: (opts?.scale ?? st.scale * this.sizeJitter(kind)) * this.sizeScale,
       attackCd: this.rng.range(0, 0.6),
       laneOffset: this.rng.range(-1, 1),
+      // 默认就走自己出生的那条线；spawnWave 会按排重设
+      laneX: x,
       flash: 0,
       speedMul: 1,
       damageMul: 1,
@@ -240,11 +262,23 @@ export class EnemyPool {
       }
 
       e.z -= speed * dt;
-      // 朝"方阵中心 + 自己那份横向偏移"收拢：整体压向方阵，但保持铺开的宽度
+      // ── 排纪律 ──────────────────────────────────────────
+      // 远处：老老实实沿着自己那一排往前走。玩家因此能提前看清"哪一排有
+      //       什么、有多少"，选排才有信息可依。
+      // 近处：开始朝方阵收拢。否则"躲进空排"就是免费通关——玩家躲开的
+      //       应该只是**开火的窗口**，不是敌人本身。
+      const gap = e.z - squad.z;
       const spread = Math.max(4.5, squad.halfWidth + 2.5);
-      const aimX = clamp(squad.x + e.laneOffset * spread, -ROAD_HALF + 0.8, ROAD_HALF - 0.8);
+      const converge = gap >= LANE_LOCK_RANGE
+        ? 0
+        : 1 - gap / LANE_LOCK_RANGE;
+      const home = e.laneX ?? e.x;
+      const aimX = clamp(
+        home + (squad.x + e.laneOffset * spread - home) * converge,
+        -ROAD_HALF + 0.8, ROAD_HALF - 0.8,
+      );
       const dx = aimX - e.x;
-      const urgency = e.z - squad.z < 24 ? 0.9 : 0.35;
+      const urgency = 0.35 + converge * 0.85;
       e.x += Math.sign(dx) * Math.min(Math.abs(dx), speed * urgency * dt);
       e.phase += dt * (3.2 + speed * 0.55);
     }
@@ -456,16 +490,34 @@ export class EnemyPool {
   }
 
   /** 距离方阵最近的 n 个活着的敌人（用来做集火目标池）。 */
-  nearestTargets(squad: Squad, range: number, limit: number, out: Enemy[]): void {
+  /**
+   * 火线上的目标 —— 枪不自瞄，子弹只往正前方飞。
+   *
+   * 判定是一条以方阵为中心、宽度约等于一条车道的走廊：站在哪一排，火力就
+   * 只落在哪一排。以前这里是"最近的 N 只"，方阵站在最左边照样能把最右边的
+   * 怪打死，走位对输出完全没有影响——那才是这个游戏没有手感的根源。
+   *
+   * `corridor` 传 Infinity 就退化成全场索敌，大炮走这条路：它是曲射武器，
+   * 能砸到隔壁排。这也是"炮兵编制"这条升级线真正的价值所在。
+   */
+  forwardTargets(
+    squad: Squad,
+    range: number,
+    limit: number,
+    out: Enemy[],
+    corridor = fireCorridor(squad),
+  ): void {
     out.length = 0;
-    const r2 = range * range;
     for (const e of this.list) {
       if (!e.alive || e.invulnerable) continue;
-      if (e.z < squad.z - 6) continue; // 已经冲过方阵的不再优先
-      const dx = e.x - squad.x;
+      // 已经冲过方阵的不再是"正前方"
+      if (e.z < squad.z - 2) continue;
       const dz = e.z - squad.z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 > r2) continue;
+      if (dz > range) continue;
+      // 目标自己的半宽也算数：一只 scale 6.8 的 Boss 身宽十几米，横跨整条路，
+      // 站在隔壁排照样打得到——按 0.5 算的话它会在自己的身体里"闪身"，
+      // Boss 战会变成"追着它换排"，一场打三分钟。
+      if (Math.abs(e.x - squad.x) > corridor + e.scale) continue;
       out.push(e);
     }
     out.sort((a, b) => (a.z - squad.z) - (b.z - squad.z));
@@ -476,6 +528,17 @@ export class EnemyPool {
     this.list.length = 0;
     this.contactCount = 0;
   }
+}
+
+/**
+ * 步枪的火线走廊半宽 —— 正好是"你脚下那一排"。
+ *
+ * 一开始这里写的是"方阵半宽 + 余量"，结果满编方阵只有 6 米宽、一排却有
+ * 7.3 米，站在排中央都够不到排边上的怪，和玩家看到的画面对不上。走廊至少
+ * 要盖住整条车道：站在这一排，这一排的东西就都打得到，隔壁排一个都够不着。
+ */
+export function fireCorridor(squad: Squad): number {
+  return Math.max(squad.halfWidth + FIRE_CORRIDOR_PAD, LANE_WIDTH / 2);
 }
 
 function clamp(v: number, lo: number, hi: number): number {

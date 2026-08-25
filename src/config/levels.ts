@@ -1,3 +1,4 @@
+import type { Lane } from '../sim/lanes';
 import type { BossKind, EnemyKind } from './balance';
 
 /** 门的效果类型。 */
@@ -30,6 +31,13 @@ export interface GateSpec {
 }
 
 export interface WaveGroup {
+  /**
+   * 这一组怪长在哪一排。不写就按组序轮着分排。
+   *
+   * 指定它才能做出"左边一排全是泰坦、右边一排全是杂兵"这种可读的战场；
+   * 玩家在远处看一眼就知道该往哪走，而不是等它们糊到脸上才发现。
+   */
+  readonly lane?: Lane;
   readonly kind: EnemyKind;
   readonly count: number;
 }
@@ -51,7 +59,6 @@ export interface LaneChoice {
   readonly hint: string;
 }
 
-export type BlockSpan = 'left' | 'right' | 'full';
 
 export type Beat =
   | { readonly t: 'run'; readonly len: number }
@@ -77,7 +84,8 @@ export type Beat =
   | {
       readonly t: 'block';
       readonly hp: number;
-      readonly span: BlockSpan;
+      /** 这堵墙长在哪一排。没有全宽墙——挡死整条路的墙不是选择。 */
+      readonly lane: Lane;
       /** 打穿后额外再给这么多金币——"奖励墙"用，不给就是普通挡路方块。 */
       readonly bonus?: number;
       /** 高墙：视觉上明显更高（配合 span 'left'/'right' 用——只挡半条路，可以绕过去）。 */
@@ -94,6 +102,13 @@ export interface LevelDef {
   /** 通关奖励金币。 */
   readonly clearGold: number;
   /** 本关所有普通敌人的血量倍率（配合玩家逐关变强的火力曲线）。 */
+  /**
+   * 杂兵血量的关卡缩放。
+   *
+   * 路切成三排、枪不再自瞄之后，方阵的火力一次只覆盖得住一排——同样一波怪，
+   * 能提前削掉的比例明显低了。这一列因此整体下调过一档：难度要来自
+   * "你站错排了"，不是"你怎么站都打不完"。
+   */
   readonly enemyHpScale: number;
   /**
    * 无尽模式：没有终点也没有 Boss 战，怪一路变强直到你顶不住。
@@ -143,8 +158,9 @@ const LEVEL_1: LevelDef = {
       right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'screamer', count: 3 }, { kind: 'walker', count: 30 }]), hint: '精英' },
     },
     { t: 'run', len: 75 },
-    // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
-    { t: 'block', hp: 2400, span: 'left', bonus: 80, tall: true },
+    // 墙只占三排里的一排：走到它那一排上才打得到、才拿得到奖励，
+    // 代价是这段时间火力全砸在墙上；走别的排就是彻底放弃这笔钱
+    { t: 'block', hp: 2400, lane: 'left', bonus: 80, tall: true },
     { t: 'run', len: 44 },
     { t: 'choice' },
     { t: 'run', len: 73 },
@@ -162,19 +178,20 @@ const LEVEL_2: LevelDef = {
   name: '第二关 · 高架断层',
   subtitle: '它们学会了跑',
   clearGold: 420,
-  enemyHpScale: 5,
+  enemyHpScale: 4.4,
   beats: [
     { t: 'run', len: 44 },
     { t: 'wave', wave: swarm(70, 10) },
     { t: 'run', len: 52 },
     { t: 'choice' },
     { t: 'run', len: 67 },
-    { t: 'block', hp: 9000, span: 'full' },
+    { t: 'block', hp: 4200, lane: 'mid', bonus: 150, tall: true },
     { t: 'run', len: 38 },
     { t: 'choice' },
     { t: 'run', len: 73 },
-    // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
-    { t: 'block', hp: 7500, span: 'right', bonus: 130, tall: true },
+    // 墙只占三排里的一排：走到它那一排上才打得到、才拿得到奖励，
+    // 代价是这段时间火力全砸在墙上；走别的排就是彻底放弃这笔钱
+    { t: 'block', hp: 7500, lane: 'right', bonus: 130, tall: true },
     { t: 'run', len: 16 },
     { t: 'midboss', hp: 5500, scale: 1.08, name: '疫化魁首' },
     { t: 'choice' },
@@ -190,24 +207,25 @@ const LEVEL_3: LevelDef = {
   name: '第三关 · 尸山阶梯',
   subtitle: '整座桥都在动',
   clearGold: 640,
-  enemyHpScale: 8.5,
+  enemyHpScale: 7.2,
   beats: [
     { t: 'run', len: 41 },
     { t: 'wave', wave: swarm(120, 18) },
     { t: 'run', len: 46 },
     { t: 'choice' },
     { t: 'run', len: 58 },
-    { t: 'block', hp: 26000, span: 'full' },
+    { t: 'block', hp: 11000, lane: 'mid', bonus: 220, tall: true },
     { t: 'run', len: 35 },
     { t: 'choice' },
     { t: 'run', len: 67 },
-    // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
-    { t: 'block', hp: 18000, span: 'right', bonus: 200, tall: true },
+    // 墙只占三排里的一排：走到它那一排上才打得到、才拿得到奖励，
+    // 代价是这段时间火力全砸在墙上；走别的排就是彻底放弃这笔钱
+    { t: 'block', hp: 18000, lane: 'right', bonus: 200, tall: true },
     { t: 'run', len: 32 },
     { t: 'midboss', hp: 9500, scale: 1.15, name: '尸潮领班' },
     { t: 'choice' },
     { t: 'run', len: 61 },
-    { t: 'surge', seconds: 13, pulses: 7, wave: swarm(52, 7, 30) },
+    { t: 'surge', seconds: 13, pulses: 5, wave: swarm(48, 6, 30) },
     { t: 'run', len: 55 },
     { t: 'boss', hp: 160000, scale: 1.2, name: '尸山之王', kind: 'maw' },
   ],
@@ -218,19 +236,20 @@ const LEVEL_4: LevelDef = {
   name: '第四关 · 猩红黎明',
   subtitle: '泰坦成群出现',
   clearGold: 880,
-  enemyHpScale: 14,
+  enemyHpScale: 11.8,
   beats: [
     { t: 'run', len: 38 },
     { t: 'wave', wave: swarm(150, 22) },
     { t: 'run', len: 44 },
     { t: 'choice' },
     { t: 'run', len: 55 },
-    { t: 'block', hp: 62000, span: 'full' },
+    { t: 'block', hp: 24000, lane: 'mid', bonus: 300, tall: true },
     { t: 'run', len: 32 },
     { t: 'choice' },
     { t: 'run', len: 48 },
-    // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
-    { t: 'block', hp: 48000, span: 'left', bonus: 260, tall: true },
+    // 墙只占三排里的一排：走到它那一排上才打得到、才拿得到奖励，
+    // 代价是这段时间火力全砸在墙上；走别的排就是彻底放弃这笔钱
+    { t: 'block', hp: 48000, lane: 'left', bonus: 260, tall: true },
     { t: 'run', len: 16 },
     { t: 'midboss', hp: 15000, scale: 1.25, name: '赤红囚徒' },
     { t: 'choice' },
@@ -246,19 +265,20 @@ const LEVEL_5: LevelDef = {
   name: '第五关 · 世界终点',
   subtitle: '最后一座桥',
   clearGold: 1400,
-  enemyHpScale: 22,
+  enemyHpScale: 18.5,
   beats: [
     { t: 'run', len: 35 },
     { t: 'wave', wave: swarm(200, 30) },
     { t: 'run', len: 38 },
     { t: 'choice' },
     { t: 'run', len: 49 },
-    { t: 'block', hp: 140000, span: 'full' },
+    { t: 'block', hp: 46000, lane: 'mid', bonus: 460, tall: true },
     { t: 'run', len: 29 },
     { t: 'choice' },
     { t: 'run', len: 58 },
-    // 高墙只挡半条路——硬啃能拿一笔额外奖励，也可以直接绕开
-    { t: 'block', hp: 90000, span: 'left', bonus: 420, tall: true },
+    // 墙只占三排里的一排：走到它那一排上才打得到、才拿得到奖励，
+    // 代价是这段时间火力全砸在墙上；走别的排就是彻底放弃这笔钱
+    { t: 'block', hp: 90000, lane: 'left', bonus: 420, tall: true },
     { t: 'run', len: 29 },
     { t: 'midboss', hp: 24000, scale: 1.35, name: '深渊先驱' },
     { t: 'choice' },
@@ -309,7 +329,7 @@ function buildEndless(): LevelDef {
     // 每隔一轮来一堵奖励高墙，给"要不要停下来啃"一个反复出现的决策点
     if (c % 2 === 1) {
       beats.push({
-        t: 'block', hp: 1800 * p, span: c % 4 === 1 ? 'left' : 'right',
+        t: 'block', hp: 1800 * p, lane: c % 3 === 1 ? 'left' : c % 3 === 2 ? 'mid' : 'right',
         bonus: 60 * p, tall: true,
       });
       beats.push({ t: 'run', len: 30 });

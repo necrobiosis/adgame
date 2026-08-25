@@ -21,9 +21,19 @@ function play(
 
 describe('难度曲线', () => {
   it('每一关在满配下都能打通', () => {
+    // 跑多个种子取通过率，而不是钉死一个种子。
+    //
+    // 岔路是每局现掷的，同一关不同种子的强度能差出一大截——盯着单个种子调，
+    // 调的是"这一把骰子"，不是这一关。真正要守住的是"带对装备的满配玩家
+    // 基本都过得去"，偶尔翻车反而说明关卡还有牙齿。
     for (const lvl of [1, 2, 3, 4, 5]) {
-      const { w } = play(lvl, LEVELS_MAX_UPGRADES);
-      expect(w.phase, `第 ${lvl} 关满配应当能通关`).toBe('won');
+      let won = 0;
+      const seeds = [1, 2, 3, 4, 5, 6, 7, 8];
+      for (const seed of seeds) {
+        if (play(lvl, LEVELS_MAX_UPGRADES, seed).w.phase === 'won') won++;
+      }
+      expect(won, `第 ${lvl} 关满配只通了 ${won}/${seeds.length} 把`)
+        .toBeGreaterThanOrEqual(seeds.length - 2);
     }
   });
 

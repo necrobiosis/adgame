@@ -1,6 +1,7 @@
 import { BLOCK, CANNON, RANK_FIRE } from '../config/balance';
 import type { EnemyPool } from './Enemies';
 import type { Squad } from './Squad';
+import { laneAtX } from './lanes';
 import type { BlockObstacle, Enemy, Shell, SimEvent } from './types';
 
 /** 枪口相对单位原点的高度。 */
@@ -14,13 +15,14 @@ export class Combat {
   readonly shells: Shell[] = [];
   private nextShellId = 1;
   private readonly targetPool: Enemy[] = [];
+  /** 大炮的目标池：走廊比步枪宽得多，所以要单独算一份。 */
+  private readonly cannonPool: Enemy[] = [];
 
   update(
     dt: number,
     squad: Squad,
     pool: EnemyPool,
     block: BlockObstacle | null,
-    ramming: boolean,
     out: SimEvent[],
   ): number {
     let goldEarned = 0;
@@ -32,8 +34,13 @@ export class Combat {
     // 集火宽度随兵力增长：人少时死死咬住最前面几只，人多时才铺开火力。
     // 不这么做的话，小队伍会把伤害均摊到几十个目标上，谁都打不死。
     const focus = clamp(Math.round(squad.aliveCount / 3), 1, 60);
-    pool.nearestTargets(squad, weapon.range, focus, this.targetPool);
+    // 枪不自瞄：只打正前方那一条走廊里的东西。
+    pool.forwardTargets(squad, weapon.range, focus, this.targetPool);
     const targets = this.targetPool;
+    // 大炮是曲射的，能越排砸——这才是"炮兵编制"和"武器等级"的本质区别：
+    // 武器决定你这一排打得多狠，火炮决定你够不够得到隔壁排。
+    pool.forwardTargets(squad, CANNON.range, 40, this.cannonPool, CANNON.corridor);
+    const cannonTargets = this.cannonPool;
 
     // 方块是否挡住去路，且在射程内
     const blockTargetable =
@@ -41,13 +48,14 @@ export class Combat {
       block.alive &&
       block.z > squad.z - 2 &&
       block.z - squad.z < Math.min(weapon.range, BLOCK.engageRange) &&
-      obstructs(block, squad, ramming);
+      obstructs(block, squad);
 
     // 有威胁逼近时留一部分火力回防
     let closeThreats = 0;
     for (const e of targets) {
       if (e.z - squad.z < THREAT_RANGE) closeThreats++;
     }
+
     const blockShare = blockTargetable ? (closeThreats > 0 ? 0.55 : 1) : 0;
 
     let idx = -1;
@@ -59,7 +67,7 @@ export class Combat {
 
       if (u.isCannon) {
         if (u.cooldown > 0) continue;
-        const aim = pickCannonAim(targets, squad, blockTargetable ? block : null);
+        const aim = pickCannonAim(cannonTargets, squad, blockTargetable ? block : null);
         if (!aim) continue;
         u.cooldown = 1 / Math.max(0.05, CANNON.fireRate * squad.fireRateMul);
         const dist = Math.hypot(aim.x - u.x, aim.z - u.z);
@@ -199,15 +207,18 @@ export function rankFireMul(row: number): number {
 /**
  * 这堵墙现在该不该挨打。
  *
- * 全宽方块挡死了去路，没得选，一定打。
- * 半宽墙则**只有玩家主动顶上去**才打——否则方阵光是从旁边擦过去就能把墙
- * 拆了，"打穿拿奖励 / 绕过去"就不是选择，而是"顺路白拿"。绕开就意味着
- * 真的放弃这份奖励，这才让那个决定有分量。
+ * 只有一条规则：**你站在它那一排上**。
+ *
+ * 墙永远只占三排里的一排，没有全宽墙。站过去就打得到、打穿了拿奖励，
+ * 代价是这段时间你的火力全砸在墙上、那一排的尸潮一路走到你脸上；
+ * 走别的排就什么都没有——错过就是错过。这个"错过就没有奖励"才是决策点，
+ * 顺路擦过去白拿不是。
  */
-function obstructs(block: BlockObstacle, squad: Squad, ramming: boolean): boolean {
-  if (block.span === 'full') return true;
-  if (!ramming) return false;
-  return squad.x + squad.halfWidth > block.x0 && squad.x - squad.halfWidth < block.x1;
+function obstructs(block: BlockObstacle, squad: Squad): boolean {
+  // 判的是**方阵中心**在不在这一排，不是边缘有没有蹭到。
+  // 用边缘相交的话，站在隔壁排的方阵只要擦到一点边就开始砸墙、还会被拖慢，
+  // 玩家完全不知道自己什么时候"算进去了"——这条线必须干脆利落。
+  return laneAtX(squad.x) === block.lane;
 }
 
 function clamp(v: number, lo: number, hi: number): number {

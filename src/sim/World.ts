@@ -20,19 +20,21 @@ import { applyGate, deniedResult } from './Gates';
 import { rollChoice } from './GateRoll';
 import { MidBossController } from './MidBoss';
 import { Squad } from './Squad';
-import { LANE_SIGN, sideAtX } from './lanes';
+import { laneAtX, laneBounds, sideAtX } from './lanes';
 import type { BlockObstacle, GateGroup, GoldPickup, Phase, SimEvent } from './types';
 
 /** 门本身的纵深（两片墙之间）。 */
 const GATE_DEPTH = 5;
 /** 遇到全宽方块时方阵停在它前面多远。 */
-const BLOCK_STOP_GAP = 5.5;
 /** 距离 Boss 竞技场多远触发 Boss。 */
 const BOSS_TRIGGER_AHEAD = 46;
 /** 无尽模式：进度条每这么多米走满一格（纯视觉分段）。 */
 const ENDLESS_RAMP = 220;
 /** 无尽模式：血量缩放的距离基准。越大爬得越慢。 */
 const ENDLESS_HP_RAMP = 500;
+
+/** 方阵贴到墙前多少米开始被拖慢。 */
+const BLOCK_STOP_GAP = 3.2;
 
 export interface RunOptions {
   levelId: number;
@@ -94,8 +96,6 @@ export class World {
   /** 已呼叫、还在飞行途中的炸弹。 */
   private pendingBombs: { t: number; x: number; z: number }[] = [];
   /** 当前正在啃的那堵半宽墙，以及已经啃了多久（用于超时放弃）。 */
-  private ramBlockId = -1;
-  private ramTime = 0;
 
   private readonly rng: Rng;
   private readonly events: SimEvent[] = [];
@@ -230,17 +230,13 @@ export class World {
           this.pendingSurges.push({ z, seconds: beat.seconds, pulses: beat.pulses, wave: beat.wave });
           break;
         case 'block': {
-          // span 说的是玩家看到的哪半边路，换算成世界 x
-          const [x0, x1] =
-            beat.span === 'full'
-              ? [-BLOCK.fullSpanHalfWidth, BLOCK.fullSpanHalfWidth]
-              : LANE_SIGN[beat.span] > 0
-                ? [0, ROAD_HALF]
-                : [-ROAD_HALF, 0];
+          // 墙永远只占三排里的一排。没有全宽墙——挡死整条路的墙不构成选择，
+          // 只是一段强制的等待。走到它那一排上才打得到、才拿得到奖励。
+          const [x0, x1] = laneBounds(beat.lane);
           this.blocks.push({
             id: this.nextId++,
             z,
-            span: beat.span,
+            lane: beat.lane,
             hp: beat.hp,
             maxHp: beat.hp,
             alive: true,
@@ -286,9 +282,16 @@ export class World {
    * 挡在方阵和尸潮之间的那堵墙。僵尸必须从两侧路肩绕过来，
    * 不能直接穿过去。
    */
+  /**
+   * 挡住僵尸去路的那堵墙。
+   *
+   * 墙对尸潮也是墙：它那一排的怪必须从两边绕过来。打穿它等于替自己开了一条
+   * 路，不打就等于用一堵墙把那一排的怪拦在外面——两边都说得通，所以两个
+   * 选择都成立。
+   */
   get barrier(): BlockObstacle | null {
     const b = this.activeBlock;
-    return b && b.alive && b.span === 'full' && b.z > this.squad.z - 2 ? b : null;
+    return b && b.alive && b.z > this.squad.z - 2 ? b : null;
   }
 
   /** 当前挡在前面的方块（渲染层与战斗层共用）。 */
@@ -318,45 +321,21 @@ export class World {
     const margin = Math.min(ROAD_HALF - 0.6, this.squad.halfWidth + 0.4);
     let x = this.squad.x + this.steer * STRAFE_SPEED * dt;
     x = clamp(x, -(ROAD_HALF - margin), ROAD_HALF - margin);
-    // 半宽方块：玩家自己不往墙上顶就自动让开，主动顶上去就啃它。
-    //
-    // 以前这里是**无条件**把方阵推到另一侧的，于是"打穿高墙拿奖励 / 也可以
-    // 绕过去"根本不是选择——绕开是强制的，打穿只是接近过程中 DPS 恰好够不够
-    // 的被动结果。现在由玩家的操舵意图决定：顶上去就停下来啃，代价是这段时间
-    // 尸潮持续逼近、接触数上涨、推进阻力变大，时间本身就是成本。
-    const blk = this.activeBlock;
-    this.ramming = false;
-    if (blk && blk.alive && blk.span !== 'full' && Math.abs(blk.z - this.squad.z) < 7) {
-      const gap = this.squad.halfWidth * 0.7 + 0.6;
-      const wallOnMinusX = blk.x0 <= -ROAD_HALF + 0.01;
-      // 玩家正在往墙的方向推杆 = 主动选择撞穿
-      if (blk.id !== this.ramBlockId) {
-        this.ramBlockId = blk.id;
-        this.ramTime = 0;
-      }
-      const gaveUp = this.ramTime >= BLOCK.ramTimeout;
-      const intent = !gaveUp && (wallOnMinusX ? this.steer < -0.15 : this.steer > 0.15);
-      if (intent) {
-        this.ramTime += dt;
-        this.ramming = true;
-        // 顶到墙面前贴住，不穿模
-        x = wallOnMinusX
-          ? Math.max(x, blk.x1 - this.squad.halfWidth * 0.5)
-          : Math.min(x, blk.x0 + this.squad.halfWidth * 0.5);
-      } else {
-        if (wallOnMinusX) x = Math.max(x, blk.x1 + gap);
-        else x = Math.min(x, blk.x0 - gap);
-      }
-      x = clamp(x, -(ROAD_HALF - margin), ROAD_HALF - margin);
-    }
+    // 墙不再把方阵推开，也不再需要"主动顶上去"的判定：墙只占一排，
+    // 你走进那一排就是在打它，走别的排就是放弃它。位置本身就是意图。
     this.squad.x = x;
 
     // ── 前进 ────────────────────────────────────────────────
-    // 方阵永远不会被墙彻底钉住：全宽方块留了两条路肩缝，硬挤也能挤过去，
-    // 只是慢得像蜗牛；半宽墙压根不挡路。停下来干等的手感太糟，"打不掉就
-    // 一直卡在这儿"不是这个游戏该有的节奏。
+    // 站在墙那一排上就会被墙拖住——不是钉死，是慢到爬。
+    //
+    // "错过就没有奖励"要成立，走过去就必须付出真实的代价，否则这个选择只是
+    // 一道"顺路白拿"的判分题。代价就是时间：这段时间尸潮一直在往前压，
+    // 你的火力也全砸在墙上。随时可以打方向盘退出这一排，立刻恢复速度——
+    // 是走是留，全程都在玩家手里。
+    const blk = this.activeBlock;
     let advanceFactor = 1;
-    if (blk && blk.span === 'full' && blk.alive && this.squad.z >= blk.z - BLOCK_STOP_GAP) {
+    if (blk && blk.alive && this.squad.z >= blk.z - BLOCK_STOP_GAP
+        && laneAtX(this.squad.x) === blk.lane) {
       advanceFactor = BLOCK.squeezeFactor;
     }
     let canAdvance = true;
@@ -400,7 +379,7 @@ export class World {
     this.enemies.damageScale = this.currentDamageScale();
     this.boss.update(dt, this.squad, this.enemies, out);
     this.midBoss.update(dt, this.squad, out);
-    const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, this.ramming, out);
+    const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, out);
     this.enemies.update(dt, this.squad, this.barrier, out);
 
     for (const ev of out) {

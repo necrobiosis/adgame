@@ -1,5 +1,6 @@
+import type { Lane } from './lanes';
 import type { EnemyKind } from '../config/balance';
-import type { BlockSpan, GateSpec, LaneChoice, WaveSpec } from '../config/levels';
+import type { GateSpec, LaneChoice, WaveSpec } from '../config/levels';
 
 /** 方阵里的一个单位。大炮和步兵共用同一个结构。 */
 export interface Unit {
@@ -43,6 +44,13 @@ export interface Enemy {
    * 给每只一个固定的偏移，尸潮才会像广告里那样铺满整个路面压过来。
    */
   laneOffset: number;
+  /**
+   * 出生时定下的那一排的中心线（世界 x）。
+   *
+   * 敌人在远处沿着它笔直往前走，进到 LANE_LOCK_RANGE 之内才开始朝方阵
+   * 收拢。有了这条线，"第二排有三只泰坦"才是玩家在四十米外就读得到的信息。
+   */
+  laneX: number;
   /** 被嚎叫者加成的倍率，每帧重算。 */
   speedMul: number;
   damageMul: number;
@@ -92,7 +100,8 @@ export interface Shell {
 export interface BlockObstacle {
   id: number;
   z: number;
-  span: BlockSpan;
+  /** 这堵墙占的那一排。永远只有一排——没有全宽墙。 */
+  lane: Lane;
   hp: number;
   maxHp: number;
   alive: boolean;

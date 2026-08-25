@@ -44,7 +44,7 @@ export const BAD_LOADOUT: readonly UpgradeId[] = ['scavenger', 'strikeSpec', 'va
 // ── 会玩的人：共用的操控机器人 ────────────────────────────────
 
 import { World } from '../../src/sim/World';
-import { LANE_SIGN } from '../../src/sim/lanes';
+import { laneAtX, laneCenterX, type Lane } from '../../src/sim/lanes';
 import type { GateSpec, WaveSpec } from '../../src/config/levels';
 
 function laneProfile(w: WaveSpec) {
@@ -83,7 +83,17 @@ export function scoreLane(gate: GateSpec, wave: WaveSpec, n: number, gold = Infi
   return s - p.count / 400 - p.big * 0.3;
 }
 
-/** 用上面那套策略把一整局跑完。 */
+/**
+ * 用上面那套策略把一整局跑完。
+ *
+ * 机器人要模拟的是"一个会玩的人"，而路被切成三排之后，走位同时要服务三件
+ * 互相冲突的事：站到门的那一侧、站进怪最多的那一排、站到奖励墙那一排上。
+ * 一个只会追着门跑的机器人会一路站在空排里眼睁睁看着尸潮从隔壁走过来——
+ * 那测出来的是"机器人不会玩"，不是"这一关难不难"。
+ *
+ * 优先级按"来不及了没"排：门快到了先去门口（错过就没得选），其次是够得着的
+ * 奖励墙，平时就待在怪最多的那一排开火。
+ */
 export function playSmart(
   levelId: number,
   ups: Record<UpgradeId, number>,
@@ -94,18 +104,37 @@ export function playSmart(
   const dt = 1 / 60;
   let t = 0;
   while (w.phase === 'running' && t < 240) {
-    const next = w.gates.find((g) => !g.taken && g.z > w.squad.z);
-    let want = LANE_SIGN.left * 6;
-    if (next) {
-      const n = w.squad.soldierCount;
-      const side = scoreLane(next.left.gate, next.left.wave, n, w.gold)
-        >= scoreLane(next.right.gate, next.right.wave, n, w.gold) ? 'left' : 'right';
-      want = LANE_SIGN[side] * 6;
-    }
-    w.steer = Math.abs(want - w.squad.x) > 0.3 ? Math.sign(want - w.squad.x) : 0;
+    w.steer = Math.sign(steerTarget(w) - w.squad.x);
+    if (Math.abs(steerTarget(w) - w.squad.x) <= 0.3) w.steer = 0;
     w.step(dt);
     w.drainEvents();
     t += dt;
   }
   return { w, t };
+}
+
+/** 这一帧想站到哪个 x。 */
+function steerTarget(w: World): number {
+  const gate = w.gates.find((g) => !g.taken && g.z > w.squad.z);
+  // 门口 40 米内：先把位置站对，错过就没得选了
+  if (gate && gate.z - w.squad.z < 40) {
+    const n = w.squad.soldierCount;
+    const side = scoreLane(gate.left.gate, gate.left.wave, n, w.gold)
+      >= scoreLane(gate.right.gate, gate.right.wave, n, w.gold) ? 'left' : 'right';
+    return laneCenterX(side);
+  }
+  // 够得着的奖励墙：兵力够厚才值得进去挨那一段慢速
+  const wall = w.blocks.find((b) => b.alive && b.bonus > 0 && b.z > w.squad.z && b.z - w.squad.z < 46);
+  if (wall && w.squad.soldierCount >= 120) return laneCenterX(wall.lane);
+  // 平时：站到怪最多的那一排上，火力才有地方去
+  const count: Record<Lane, number> = { left: 0, mid: 0, right: 0 };
+  for (const e of w.enemies.list) {
+    if (!e.alive) continue;
+    const dz = e.z - w.squad.z;
+    if (dz < -2 || dz > 46) continue;
+    count[laneAtX(e.x)]++;
+  }
+  let best: Lane = 'mid';
+  for (const l of ['left', 'mid', 'right'] as const) if (count[l] > count[best]) best = l;
+  return laneCenterX(best);
 }
