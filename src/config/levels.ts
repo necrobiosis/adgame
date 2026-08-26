@@ -105,9 +105,11 @@ export interface LevelDef {
   /**
    * 杂兵血量的关卡缩放。
    *
-   * 路切成三排、枪不再自瞄之后，方阵的火力一次只覆盖得住一排——同样一波怪，
-   * 能提前削掉的比例明显低了。这一列因此整体下调过一档：难度要来自
-   * "你站错排了"，不是"你怎么站都打不完"。
+   * 这一列跟着两次玩法改动来回调过：
+   *  · 路切成三排、枪不自瞄 → 火力一次只覆盖一排，先下调过一档；
+   *  · 射程改成无限、加上穿透 → 怪从一百多米外就开始挨打，命中时间翻了几倍，
+   *    于是又整体上调回来并且拉得更开。难度要来自"你站错排了"和"这一排的怪
+   *    厚得你削不完"，不是"你根本够不着"。
    */
   readonly enemyHpScale: number;
   /**
@@ -147,7 +149,7 @@ const LEVEL_1: LevelDef = {
   name: '第一关 · 跨海大桥',
   subtitle: '尸潮初现',
   clearGold: 260,
-  enemyHpScale: 2.6,
+  enemyHpScale: 3,
   beats: [
     { t: 'run', len: 49 },
     { t: 'wave', wave: swarm(46) },
@@ -178,7 +180,7 @@ const LEVEL_2: LevelDef = {
   name: '第二关 · 高架断层',
   subtitle: '它们学会了跑',
   clearGold: 420,
-  enemyHpScale: 4.4,
+  enemyHpScale: 5.6,
   beats: [
     { t: 'run', len: 44 },
     { t: 'wave', wave: swarm(70, 10) },
@@ -207,7 +209,7 @@ const LEVEL_3: LevelDef = {
   name: '第三关 · 尸山阶梯',
   subtitle: '整座桥都在动',
   clearGold: 640,
-  enemyHpScale: 7.2,
+  enemyHpScale: 9.5,
   beats: [
     { t: 'run', len: 41 },
     { t: 'wave', wave: swarm(120, 18) },
@@ -236,10 +238,10 @@ const LEVEL_4: LevelDef = {
   name: '第四关 · 猩红黎明',
   subtitle: '泰坦成群出现',
   clearGold: 880,
-  enemyHpScale: 11.8,
+  enemyHpScale: 17,
   beats: [
     { t: 'run', len: 38 },
-    { t: 'wave', wave: swarm(150, 22) },
+    { t: 'wave', wave: swarm(210, 32) },
     { t: 'run', len: 44 },
     { t: 'choice' },
     { t: 'run', len: 55 },
@@ -254,7 +256,7 @@ const LEVEL_4: LevelDef = {
     { t: 'midboss', hp: 15000, scale: 1.25, name: '赤红囚徒' },
     { t: 'choice' },
     { t: 'run', len: 58 },
-    { t: 'surge', seconds: 15, pulses: 8, wave: swarm(53, 9, 32) },
+    { t: 'surge', seconds: 20, pulses: 11, wave: swarm(64, 12, 32) },
     { t: 'run', len: 52 },
     { t: 'boss', hp: 260000, scale: 1.35, name: '猩红使徒', kind: 'apostle' },
   ],
@@ -265,10 +267,10 @@ const LEVEL_5: LevelDef = {
   name: '第五关 · 世界终点',
   subtitle: '最后一座桥',
   clearGold: 1400,
-  enemyHpScale: 18.5,
+  enemyHpScale: 28,
   beats: [
     { t: 'run', len: 35 },
-    { t: 'wave', wave: swarm(200, 30) },
+    { t: 'wave', wave: swarm(280, 44) },
     { t: 'run', len: 38 },
     { t: 'choice' },
     { t: 'run', len: 49 },
@@ -283,7 +285,7 @@ const LEVEL_5: LevelDef = {
     { t: 'midboss', hp: 24000, scale: 1.35, name: '深渊先驱' },
     { t: 'choice' },
     { t: 'run', len: 67 },
-    { t: 'surge', seconds: 18, pulses: 9, wave: elite([{ kind: 'brute', count: 1 }, { kind: 'walker', count: 30 }, { kind: 'runner', count: 6 }], 32) },
+    { t: 'surge', seconds: 22, pulses: 12, wave: elite([{ kind: 'brute', count: 2 }, { kind: 'walker', count: 38 }, { kind: 'runner', count: 9 }], 32) },
     { t: 'run', len: 55 },
     // 1.55 的体型在竖屏里根本框不下——镜头只能拍到胸口，头、背刃、破布
     // 全在画面外，"长得不一样"这件事等于白做。1.35 仍然是全场最大的一只
@@ -346,7 +348,7 @@ function buildEndless(): LevelDef {
     subtitle: '撑到你撑不住为止',
     clearGold: 0,
     // 无尽模式里这个值是血量爬升的斜率，不是上限
-    enemyHpScale: 2.2,
+    enemyHpScale: 3,
     endless: true,
     beats,
   };

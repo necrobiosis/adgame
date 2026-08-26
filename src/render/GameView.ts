@@ -21,6 +21,15 @@ import { Weather, type WeatherKind } from './env/Weather';
 import { AreaTelegraph } from './fx/AreaTelegraph';
 import { FireLane } from './fx/FireLane';
 import { fireCorridor } from '../sim/Enemies';
+
+/**
+ * 火线亮带画多长 = 有效射程 × 这个系数。
+ *
+ * 射程是无限的，带子当然不可能画到无限远。画到"伤害还剩个零头"的那个距离
+ * 为止，正好把有效射程这件事也画出来了：换上电磁炮，地上那条光带一下子
+ * 铺出去三倍远——升级看得见，不用读数值。
+ */
+const FIRE_LANE_REACH = 2.6;
 import { Decals } from './fx/Decals';
 import { FlashLights } from './fx/FlashLights';
 import { GoldBurst } from './fx/GoldBurst';
@@ -571,6 +580,11 @@ export class GameView {
    */
   inspect: { target: 'squad' | 'boss' | 'enemy' | 'cannon'; dist: number; height: number; yaw: number } | null = null;
 
+  /** 开发期：这一帧屏幕上有多少发曳光弹在飞。 */
+  get tracerCount(): number {
+    return this.tracers.mesh.count;
+  }
+
   private applyInspect(world: World): boolean {
     const ins = this.inspect;
     if (!ins) return false;
@@ -610,7 +624,9 @@ export class GameView {
     // 火线：跟着方阵，宽度就是判定用的走廊宽度，一米不差
     this.fireLane.update(
       world.squad.x, world.squad.z,
-      fireCorridor(world.squad), world.squad.weapon.range, world.squad.weapon.tracer,
+      fireCorridor(world.squad),
+      world.squad.weapon.falloffStart * FIRE_LANE_REACH,
+      world.squad.weapon.tracer,
     );
     this.syncShells(world);
     this.syncBoss(world, dt);
@@ -1012,12 +1028,31 @@ export class GameView {
     for (const ev of events) {
       switch (ev.type) {
         case 'shot': {
-          this.tracers.spawn(ev.x!, ev.y!, ev.z!, ev.tx!, ev.ty!, ev.tz!, ev.color ?? 0xffd166);
-          if (this.rng.next() < 0.22) {
+          // amount 带的是曳光弹的视觉档（见 WEAPON_TIERS.beam）
+          const beam = ev.amount ?? 0;
+          const col = ev.color ?? 0xffd166;
+          this.tracers.spawn(ev.x!, ev.y!, ev.z!, ev.tx!, ev.ty!, ev.tz!, col, beam);
+          // 枪口焰也跟着档位长大：高档武器每一发都该把周围照亮一下
+          if (this.rng.next() < 0.22 + beam * 0.14) {
             this.sparks.burst(ev.x!, ev.y!, ev.z! + 0.55, {
-              count: 1, color: ev.color ?? 0xffd166,
-              speed: [0.4, 1.4], size: [0.3, 0.55], life: [0.05, 0.09], grow: -1.6,
+              count: 1 + beam, color: col,
+              speed: [0.4, 1.4 + beam * 0.8], size: [0.3 + beam * 0.16, 0.55 + beam * 0.3],
+              life: [0.05, 0.09 + beam * 0.03], grow: -1.6,
             });
+          }
+          // 落点火花：镜头是顺着弹道往前看的，弹道本身被压成一个小点，
+          // 真正看得见"这一枪有多重"的地方是**打在谁身上**。档位越高，
+          // 命中处炸开的火花越大。
+          if (beam >= 1 && this.rng.next() < 0.18 + beam * 0.16) {
+            this.sparks.burst(ev.tx!, ev.ty!, ev.tz!, {
+              count: beam, color: col, color2: 0xffffff,
+              speed: [1.2 + beam, 3 + beam * 2.2], size: [0.3 + beam * 0.14, 0.6 + beam * 0.34],
+              life: [0.07, 0.14 + beam * 0.03], grow: -0.8, drag: 3,
+            });
+          }
+          // 顶级武器：每一发都点一盏灯。这是"我换枪了"最直接的一层反馈
+          if (beam >= 3 && this.rng.next() < 0.3) {
+            this.flashes.flash(ev.x!, ev.y! + 0.4, ev.z! + 1.0, col, 30 + beam * 14, 0.07);
           }
           break;
         }

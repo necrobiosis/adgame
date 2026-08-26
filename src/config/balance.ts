@@ -49,33 +49,79 @@ export interface WeaponTier {
   readonly damage: number;
   /** 每秒发数。 */
   readonly fireRate: number;
-  /** 射程（米）。 */
-  readonly range: number;
   /** 曳光弹颜色。 */
   readonly tracer: number;
   /** 一次开火打出几发（霰弹/连发观感）。 */
   readonly pellets: number;
+  /**
+   * 有效射程（米）。
+   *
+   * **射程本身是无限的**——只要在你那一排，多远都会开火、都会命中，
+   * 士兵不会再站着干等。这个值是伤害开始衰减的那道坎：坎以内满伤害，
+   * 越往外打得越轻。于是"打得多远"从一道硬边界变成了一条软曲线，
+   * 既不会出现"敌人就在眼前却不开枪"的怪画面，又保住了"放近了再打更划算"
+   * 这个节奏——也让电磁炮这种远程武器真的有远程的价值。
+   */
+  readonly falloffStart: number;
+  /**
+   * 穿透：一发子弹能串起几个目标。
+   *
+   * 射程改成无限之后，"打得多远"不再是区分武器的轴了——这一列接上来当新的
+   * 那个轴。子弹本来就只往正前方飞，一整排怪站成一条纵队，穿透几个就是
+   * 实打实的手感差别：手枪一枪一个，电磁炮一枪串穿半条街。
+   */
+  readonly pierce: number;
+  /**
+   * 曳光弹的视觉档：0 细亮的点射 → 4 一整道贯穿的光柱。
+   * 升级要**看得见**，光靠伤害数字变大玩家感觉不到自己换了枪。
+   */
+  readonly beam: number;
+}
+
+/**
+ * 射程。
+ *
+ * 数值上是无限的——只要在你那一排，多远都打得到。这里留一个很大的有限值
+ * 纯粹是给索敌循环一个上界（也顺便挡住"朝着两百米外还没进场的怪空放"）。
+ */
+export const WEAPON_RANGE = 400;
+
+/**
+ * 超出有效射程之后的伤害衰减。
+ * 距离每翻一倍，伤害乘 2^-EXP；再远也不会低于 FLOOR。
+ */
+export const FALLOFF = { exp: 1.15, floor: 0.16 } as const;
+
+/** 给定有效射程和实际距离，算这一发打出去还剩几成伤害。 */
+export function rangeFalloff(falloffStart: number, dist: number): number {
+  if (dist <= falloffStart) return 1;
+  return Math.max(FALLOFF.floor, Math.pow(falloffStart / dist, FALLOFF.exp));
 }
 
 /**
  * 八级武器。
  *
  * 之前六级全是 `pellets: 1`，差别只有伤害和射速在单调上涨——升级读起来
- * 就是"数字变大"，手感上没有换过枪。现在每一级都有自己的性格：霰弹是
- * 多弹丸的近距清场，加特林是极高射速的持续输出，电磁炮射程最远但慢，
- * 湮灭者是终极的高伤慢速。同一个 DPS 在不同射程和节奏下完全是两种打法。
+ * 就是"数字变大"，手感上没有换过枪。射程改成无限之后，区分武器的轴换成了
+ * 三个看得见的东西：**一次打几发**（霰弹）、**一发串几个**（穿透）、
+ * **曳光弹长什么样**（beam）。从手枪的一颗小亮点，到湮灭者的双道紫色光柱，
+ * 每升一级屏幕上都得有明显的变化。
+ *
+ * falloffStart 是"满伤害能打多远"，不是射程上限——射程无限，只是越远越轻。
+ * 电磁炮的 110 米意味着它在别的枪只能挠痒的距离上仍然是满伤害。
  */
 export const WEAPON_TIERS: readonly WeaponTier[] = [
-  { name: '手枪',     damage: 9,  fireRate: 3.4,  range: 26, tracer: 0xffe08a, pellets: 1 },
-  // 霰弹枪：一次打出四颗弹丸，射程最短——贴脸清杂兵极强，打精英很吃力
-  { name: '霰弹枪',   damage: 8,  fireRate: 2.3,  range: 23, tracer: 0xffcf7a, pellets: 4 },
-  { name: '冲锋枪',   damage: 13, fireRate: 6.0,  range: 28, tracer: 0xffd166, pellets: 1 },
-  { name: '突击步枪', damage: 18, fireRate: 6.5,  range: 31, tracer: 0xffc14d, pellets: 1 },
-  { name: '轻机枪',   damage: 25, fireRate: 8.0,  range: 33, tracer: 0xffa62b, pellets: 1 },
-  { name: '加特林',   damage: 28, fireRate: 13.0, range: 34, tracer: 0xff8c1a, pellets: 1 },
-  // 电磁炮：射程碾压一切，射速很慢——离得老远就开始削，尸潮走到跟前已经少一层
-  { name: '电磁炮',   damage: 150, fireRate: 3.4, range: 52, tracer: 0x9fd8ff, pellets: 1 },
-  { name: '湮灭者',   damage: 46, fireRate: 8.0,  range: 42, tracer: 0xc9a8ff, pellets: 2 },
+  { name: '手枪',     damage: 9,   fireRate: 3.4,  falloffStart: 24,  tracer: 0xffe08a, pellets: 1, pierce: 1, beam: 0 },
+  // 霰弹枪：一次四颗弹丸，每颗还能串两个——一枪撂倒一小片
+  { name: '霰弹枪',   damage: 8,   fireRate: 2.3,  falloffStart: 17,  tracer: 0xffcf7a, pellets: 4, pierce: 2, beam: 1 },
+  { name: '冲锋枪',   damage: 13,  fireRate: 6.0,  falloffStart: 27,  tracer: 0xffd166, pellets: 1, pierce: 1, beam: 0 },
+  { name: '突击步枪', damage: 18,  fireRate: 6.5,  falloffStart: 33,  tracer: 0xffc14d, pellets: 1, pierce: 2, beam: 1 },
+  { name: '轻机枪',   damage: 25,  fireRate: 8.0,  falloffStart: 38,  tracer: 0xffa62b, pellets: 1, pierce: 3, beam: 2 },
+  { name: '加特林',   damage: 28,  fireRate: 13.0, falloffStart: 40, tracer: 0xff8c1a, pellets: 1, pierce: 3, beam: 2 },
+  // 电磁炮：一枪串穿整条纵队。射速慢，但打的是"一条线"而不是"一个点"
+  { name: '电磁炮',   damage: 120, fireRate: 3.0,  falloffStart: 110,  tracer: 0x9fd8ff, pellets: 1, pierce: 9, beam: 4 },
+  // 湮灭者：双管齐射 + 高穿透，屏幕上是两道并排的紫色光柱
+  { name: '湮灭者',   damage: 52,  fireRate: 7.0,  falloffStart: 62,  tracer: 0xc9a8ff, pellets: 2, pierce: 6, beam: 3 },
 ];
 
 export const MAX_WEAPON_LEVEL = WEAPON_TIERS.length - 1;
@@ -95,7 +141,14 @@ export const CANNON = {
   /** 溅射边缘的伤害衰减系数（中心 1.0 → 边缘 EDGE）。 */
   splashEdge: 0.42,
   fireRate: 0.72,
-  range: 44,
+  /**
+   * 大炮的射程。
+   *
+   * 步枪的射程是无限的，大炮不是——炮弹有实打实的飞行时间，射程再远只会
+   * 让炮弹在天上飞五六秒、落点上的怪早就走开了。这个值是"打得到而且还砸得准"
+   * 的上限。
+   */
+  range: 90,
   /** 炮弹飞行速度。 */
   shellSpeed: 46,
   maxCannons: 40,
@@ -241,12 +294,12 @@ export const ENEMY_STATS: Record<EnemyKind, EnemyStats> = {
   walker:   { kind: 'walker',   label: '尸群',   hp: 12,   speed: 3.2,  damage: 4,  scale: 1.0,  gold: 1,   tint: 0xb6c0a6, showHealthBar: false, sweep: 1, scaleExp: 1.0 },
   runner:   { kind: 'runner',   label: '疾行者', hp: 20,   speed: 6.6,  damage: 6,  scale: 0.95, gold: 2,   tint: 0xc6b489, showHealthBar: false, sweep: 1, scaleExp: 1.0 },
   screamer: { kind: 'screamer', label: '嚎叫者', hp: 260,  speed: 3.6,  damage: 10, scale: 1.25,  gold: 8,   tint: 0xc46a86, showHealthBar: true,  sweep: 1, scaleExp: 0.8 },
-  brute:    { kind: 'brute',    label: '蛮兽',   hp: 1500, speed: 2.7,  damage: 30, scale: 1.6,  gold: 30,  tint: 0x8f5a4a, showHealthBar: true,  sweep: 3, scaleExp: 0.55 },
+  brute:    { kind: 'brute',    label: '蛮兽',   hp: 1500, speed: 2.7,  damage: 30, scale: 1.6,  gold: 30,  tint: 0x8f5a4a, showHealthBar: true,  sweep: 3, scaleExp: 0.72 },
   // titan/boss 的 tint 曾经是"整只涂成红橙色"的旧设计遗留值。palette 已经改成
   // 炭黑甲壳 + 骨白角爪 + 熔纹发光的分层配色，tint 是在几何体自带颜色之上再乘
   // 一层——继续用那个饱和红橙会把新调色板重新糊成一片红，所以改成接近白色，
   // 让 palette 本身的颜色如实显示。
-  titan:    { kind: 'titan',    label: '泰坦',   hp: 5200, speed: 2.2,  damage: 52, scale: 2.1,  gold: 70,  tint: 0xf0ece4, showHealthBar: true,  sweep: 5, scaleExp: 0.45 },
+  titan:    { kind: 'titan',    label: '泰坦',   hp: 5200, speed: 2.2,  damage: 52, scale: 2.1,  gold: 70,  tint: 0xf0ece4, showHealthBar: true,  sweep: 5, scaleExp: 0.66 },
   // 中 boss：介于精英怪和终极 Boss 之间——不halt 方阵、不进竞技场，就是一只
   // 会顶着一个技能往前冲的强化精英，用普通 AI 走位（scripted:false），
   // 靠 MidBossController 挂一层"到点炸一下"的技能。hp 字段基本用不上
@@ -261,7 +314,7 @@ export const ENEMY_STATS: Record<EnemyKind, EnemyStats> = {
   // 惩罚"把方阵堆得很厚然后不管后排"的打法。
   leaper:   { kind: 'leaper',   label: '跳跃者', hp: 270,  speed: 5.4,  damage: 14, scale: 1.0,  gold: 7,   tint: 0xd0a05c, showHealthBar: true,  sweep: 1, scaleExp: 0.8 },
   // 重甲尸：子弹打不动，必须靠火炮溅射。
-  armored:  { kind: 'armored',  label: '重甲尸', hp: 900,  speed: 2.1,  damage: 26, scale: 1.5,  gold: 26,  tint: 0x8d99a6, showHealthBar: true,  sweep: 2, scaleExp: 0.6, bulletResist: 0.82 },
+  armored:  { kind: 'armored',  label: '重甲尸', hp: 900,  speed: 2.1,  damage: 26, scale: 1.5,  gold: 26,  tint: 0x8d99a6, showHealthBar: true,  sweep: 2, scaleExp: 0.75, bulletResist: 0.82 },
   // 幼体：只有半人高、跑得比疾行者还快、一枪一个。单只没有威胁，
   // 但它们永远是成百上千地来——这是"射速"这条线唯一真正的用武之地，
   // 也是尸潮之所以叫尸潮的原因。

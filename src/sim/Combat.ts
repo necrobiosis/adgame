@@ -1,8 +1,11 @@
-import { BLOCK, CANNON, RANK_FIRE } from '../config/balance';
+import { BLOCK, CANNON, RANK_FIRE, WEAPON_RANGE, rangeFalloff } from '../config/balance';
 import type { EnemyPool } from './Enemies';
 import type { Squad } from './Squad';
 import { laneAtX } from './lanes';
 import type { BlockObstacle, Enemy, Shell, SimEvent } from './types';
+
+/** 穿透衰减：串到第 k 个目标时伤害乘这么多的 k 次方。 */
+const PIERCE_FALLOFF = 0.72;
 
 /** 枪口相对单位原点的高度。 */
 const MUZZLE_Y = 1.15;
@@ -35,7 +38,7 @@ export class Combat {
     // 不这么做的话，小队伍会把伤害均摊到几十个目标上，谁都打不死。
     const focus = clamp(Math.round(squad.aliveCount / 3), 1, 60);
     // 枪不自瞄：只打正前方那一条走廊里的东西。
-    pool.forwardTargets(squad, weapon.range, focus, this.targetPool);
+    pool.forwardTargets(squad, WEAPON_RANGE, focus, this.targetPool);
     const targets = this.targetPool;
     // 大炮是曲射的，能越排砸——这才是"炮兵编制"和"武器等级"的本质区别：
     // 武器决定你这一排打得多狠，火炮决定你够不够得到隔壁排。
@@ -47,7 +50,7 @@ export class Combat {
       block !== null &&
       block.alive &&
       block.z > squad.z - 2 &&
-      block.z - squad.z < Math.min(weapon.range, BLOCK.engageRange) &&
+      block.z - squad.z < BLOCK.engageRange &&
       obstructs(block, squad);
 
     // 有威胁逼近时留一部分火力回防
@@ -114,15 +117,35 @@ export class Combat {
       }
 
       if (targets.length === 0) continue;
-      const target = targets[idx % targets.length]!;
+      const first = idx % targets.length;
+      const target = targets[first]!;
       if (!target.alive) continue;
       u.cooldown = interval;
-      goldEarned += pool.damage(target, dmg * weapon.pellets * rankMul, out);
+      const perShot = dmg * weapon.pellets * rankMul;
+      // 穿透：子弹本来就只往正前方飞，一整排怪站成一条纵队，
+      // 高穿透的枪一发能把它们串起来——这是射程无限之后新的区分轴。
+      let last = target;
+      let hit = 0;
+      for (let k = 0; k < weapon.pierce && hit < weapon.pierce; k++) {
+        const t = targets[(first + k) % targets.length];
+        if (!t || !t.alive) continue;
+        // 两层衰减叠在一起：
+        //  · 距离——射程无限，但超出有效射程越远打得越轻
+        //  · 穿透——越往后串伤害越低，否则高穿透等于白送一个大倍率
+        const atk = perShot
+          * rangeFalloff(weapon.falloffStart, t.z - u.z)
+          * Math.pow(PIERCE_FALLOFF, k);
+        goldEarned += pool.damage(t, atk, out);
+        last = t;
+        hit++;
+      }
       out.push({
         type: 'shot',
         x: u.x, y: MUZZLE_Y, z: u.z,
-        tx: target.x, ty: 1.1 * target.scale, tz: target.z,
+        // 曳光弹画到**最后一个**被串到的目标：穿透几个，光柱就有多长
+        tx: last.x, ty: 1.1 * last.scale, tz: last.z,
         color: weapon.tracer,
+        amount: weapon.beam,
       });
     }
 

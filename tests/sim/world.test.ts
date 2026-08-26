@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ENDLESS_ID } from '../../src/config/levels';
 import { World } from '../../src/sim/World';
-import { BUFF_CAP, ROAD_HALF, SOLDIER, type UpgradeId } from '../../src/config/balance';
+import { BUFF_CAP, ROAD_HALF, SOLDIER, WEAPON_TIERS, rangeFalloff, type UpgradeId } from '../../src/config/balance';
 import { LANE_SIGN, laneBounds, laneCenterX } from '../../src/sim/lanes';
 import { LEVELS_MAX_UPGRADES, NO_UPGRADES, upgrades as mkUpgrades } from './fixtures';
 
@@ -288,5 +288,45 @@ describe('奖励墙', () => {
       t += dt;
     }
     expect(wall.alive, `满配走进墙那一排，${wall.maxHp} 血的墙也没打穿`).toBe(false);
+  });
+});
+
+describe('射程无限 · 穿透', () => {
+  it('多远都开火，只是越远打得越轻', () => {
+    // "射程无限"的字面意思：一百米外的怪照样吃子弹，士兵不会站着干等。
+    // 但超出有效射程之后伤害会衰减，所以放近了打仍然更划算。
+    const near = rangeFalloff(30, 20);
+    const at = rangeFalloff(30, 30);
+    const far = rangeFalloff(30, 120);
+    expect(near).toBe(1);
+    expect(at).toBe(1);
+    expect(far).toBeGreaterThan(0);
+    expect(far).toBeLessThan(0.4);
+
+    const w = new World({ levelId: 1, upgrades: mkUpgrades({ squad: 8, weapon: 3 }), seed: 5 });
+    w.enemies.clear();
+    w.squad.x = laneCenterX('mid');
+    w.squad.layout();
+    // 一百二十米外——远远超过任何一把枪的有效射程
+    const e = w.enemies.spawn('walker', laneCenterX('mid'), w.squad.z + 120);
+    e.laneX = e.x;
+    e.hp = e.maxHp = 1e7;
+    const dt = 1 / 60;
+    for (let i = 0; i < 60; i++) {
+      w.step(dt);
+      w.drainEvents();
+    }
+    expect(e.hp, '一百二十米外的怪一枪都没挨到').toBeLessThan(e.maxHp);
+  });
+
+  it('穿透高的枪一发能串起一整条纵队', () => {
+    // 子弹只往正前方飞，一排怪自然站成纵队——穿透就是这个玩法下最自然的
+    // 一条区分轴，也是射程不再是轴之后接上来的那一个。
+    const tiers = WEAPON_TIERS;
+    expect(tiers[0]!.pierce, '手枪应该是一枪一个').toBe(1);
+    expect(tiers[6]!.pierce, '电磁炮应该串得最多').toBeGreaterThan(5);
+    // 八级武器的"外观档"要真的拉开，不能全挤在一两档上
+    expect(new Set(tiers.map((t) => t.beam)).size).toBeGreaterThanOrEqual(4);
+    expect(Math.max(...tiers.map((t) => t.beam))).toBeGreaterThanOrEqual(4);
   });
 });

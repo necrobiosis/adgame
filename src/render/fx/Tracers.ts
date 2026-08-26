@@ -6,18 +6,44 @@ interface Tracer {
   age: number;
   dur: number;
   color: number;
+  /** 光柱粗细倍率。 */
+  w: number;
+  /** 拖尾长度（米）。 */
+  streak: number;
+  /** 亮度倍率。 */
+  glow: number;
 }
+
+/**
+ * 曳光弹的五档外观。
+ *
+ * 升级必须**看得见**。只改伤害数字的话，玩家换了枪也感觉不到自己变强了——
+ * 从手枪的一颗小亮点，到轻机枪的粗光条，再到电磁炮那道一闪即达、贯穿到底
+ * 的蓝白光柱，每一档在屏幕上都得是另一种东西。
+ *
+ * 注意：镜头是从方阵背后顺着弹道往前看的，子弹几乎是**朝着镜头的反方向**飞——
+ * 再长的拖尾投影到屏幕上也只有一小段。所以这几档的预算全压在"粗"和"亮"上，
+ * 长度只是锦上添花。
+ *
+ *  w      粗细倍率
+ *  streak 拖尾长度（Infinity = 从枪口一直连到目标，读作"一道光柱"）
+ *  speed  视觉弹速，越高越接近瞬间到达
+ *  glow   亮度倍率
+ *  life   最短存在时间，保证高速档也留得住一帧
+ */
+const BEAM_STYLE = [
+  { w: 1.0, streak: 1.2, speed: 95, glow: 1.2, life: 0.025 },
+  { w: 1.6, streak: 2.2, speed: 120, glow: 1.5, life: 0.03 },
+  { w: 2.4, streak: 4.5, speed: 170, glow: 1.9, life: 0.04 },
+  { w: 3.6, streak: 11, speed: 260, glow: 2.5, life: 0.055 },
+  { w: 5.4, streak: Infinity, speed: 900, glow: 3.4, life: 0.09 },
+] as const;
 
 export interface Impact {
   x: number; y: number; z: number; color: number;
 }
 
-/** 拖尾长度（米）。短促的一小段，而不是贯穿全程的长条。 */
-const STREAK_LEN = 1.2;
-/** 视觉弹速（米/秒）。 */
-const BULLET_SPEED = 95;
-/** 单发飞行时间的上下限——太远别飞太久，太近别瞬间到达变回激光感。 */
-const MIN_DUR = 0.025;
+/** 单发飞行时间的上限——太远别飞太久。 */
 const MAX_DUR = 0.12;
 
 /**
@@ -34,6 +60,7 @@ export class Tracers {
   private readonly colors: Float32Array;
   private readonly colorAttr: THREE.InstancedBufferAttribute;
   private readonly alpha: THREE.InstancedBufferAttribute;
+  private readonly glow: THREE.InstancedBufferAttribute;
   private readonly tmp = new THREE.Matrix4();
   private readonly up = new THREE.Vector3(0, 1, 0);
   private readonly a = new THREE.Vector3();
@@ -41,16 +68,20 @@ export class Tracers {
   private readonly head = new THREE.Vector3();
   private readonly tail = new THREE.Vector3();
   private readonly mid = new THREE.Vector3();
+  private readonly scl = new THREE.Vector3();
 
   constructor(readonly capacity = 900) {
-    const geo = new THREE.BoxGeometry(0.06, 0.06, 1);
+    const geo = new THREE.BoxGeometry(0.16, 0.16, 1);
     this.colors = new Float32Array(capacity * 3);
     this.colorAttr = new THREE.InstancedBufferAttribute(this.colors, 3);
     this.alpha = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+    this.glow = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     this.colorAttr.setUsage(THREE.DynamicDrawUsage);
     this.alpha.setUsage(THREE.DynamicDrawUsage);
+    this.glow.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute('aColor', this.colorAttr);
     geo.setAttribute('aAlpha', this.alpha);
+    geo.setAttribute('aGlow', this.glow);
 
     const mat = new THREE.ShaderMaterial({
       transparent: true,
@@ -59,10 +90,13 @@ export class Tracers {
       vertexShader: /* glsl */ `
         attribute vec3 aColor;
         attribute float aAlpha;
+        attribute float aGlow;
         varying vec3 vColor;
         varying float vAlpha;
         void main() {
-          vColor = aColor;
+          // 亮度乘在**颜色**上，不能乘在 alpha 上：加色混合里 alpha 会被钳到
+          // 1，高档武器的 glow 全被吃掉，八级武器的曳光弹看起来一模一样。
+          vColor = aColor * aGlow;
           vAlpha = aAlpha;
           gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
         }
@@ -84,18 +118,24 @@ export class Tracers {
   /** 这一帧刚好飞抵目标的那些落点，update() 结束后可读，供 GameView 生成落点火花。 */
   readonly impacts: Impact[] = [];
 
-  spawn(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: number): void {
+  spawn(
+    x0: number, y0: number, z0: number,
+    x1: number, y1: number, z1: number,
+    color: number, beam = 0,
+  ): void {
     if (this.items.length >= this.capacity) return;
     const dist = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
     if (dist < 0.001) return;
-    const dur = THREE.MathUtils.clamp(dist / BULLET_SPEED, MIN_DUR, MAX_DUR);
+    const st = BEAM_STYLE[Math.max(0, Math.min(BEAM_STYLE.length - 1, beam))]!;
+    const dur = THREE.MathUtils.clamp(dist / st.speed, st.life, MAX_DUR);
     const i = this.items.length;
     const c = new THREE.Color(color);
     this.colors[i * 3] = c.r;
     this.colors[i * 3 + 1] = c.g;
     this.colors[i * 3 + 2] = c.b;
     this.alpha.array[i] = 1;
-    this.items.push({ x0, y0, z0, x1, y1, z1, age: 0, dur, color });
+    this.glow.array[i] = st.glow;
+    this.items.push({ x0, y0, z0, x1, y1, z1, age: 0, dur, color, w: st.w, streak: st.streak, glow: st.glow });
   }
 
   update(dt: number): void {
@@ -110,6 +150,7 @@ export class Tracers {
           this.items[i] = this.items[last]!;
           for (let k = 0; k < 3; k++) this.colors[i * 3 + k] = this.colors[last * 3 + k]!;
           this.alpha.array[i] = this.alpha.array[last]!;
+          this.glow.array[i] = this.glow.array[last]!;
         }
         this.items.pop();
         continue;
@@ -122,7 +163,7 @@ export class Tracers {
       const total = this.a.distanceTo(this.b);
       // 子弹头部沿路径前移；拖尾长度固定，不随总距离拉伸
       this.head.lerpVectors(this.a, this.b, t);
-      const tailT = Math.max(0, t - Math.min(STREAK_LEN, total) / Math.max(total, 0.001));
+      const tailT = Math.max(0, t - Math.min(it2.streak, total) / Math.max(total, 0.001));
       this.tail.lerpVectors(this.a, this.b, tailT);
       const len = this.head.distanceTo(this.tail);
       this.mid.addVectors(this.head, this.tail).multiplyScalar(0.5);
@@ -134,9 +175,10 @@ export class Tracers {
       }
       this.mats[i]!.copy(this.tmp);
       this.mats[i]!.setPosition(this.mid);
-      this.mats[i]!.scale(new THREE.Vector3(1, 1, Math.max(len, 0.05)));
+      this.mats[i]!.scale(this.scl.set(it2.w, it2.w, Math.max(len, 0.05)));
       // 头部亮尾部暗，读起来更像一发正在飞的子弹
       this.alpha.array[i] = 0.35 + 0.65 * (1 - Math.abs(t - 1) * 0.3);
+      this.glow.array[i] = it2.glow;
     }
     const n = this.items.length;
     for (let i = 0; i < n; i++) this.mesh.setMatrixAt(i, this.mats[i]!);
@@ -145,6 +187,7 @@ export class Tracers {
       this.mesh.instanceMatrix.needsUpdate = true;
       this.colorAttr.needsUpdate = true;
       this.alpha.needsUpdate = true;
+      this.glow.needsUpdate = true;
     }
   }
 

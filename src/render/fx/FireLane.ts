@@ -21,7 +21,7 @@ export class FireLane {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      opacity: 0.24,
+      opacity: 0.36,
       toneMapped: false,
     });
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.mat);

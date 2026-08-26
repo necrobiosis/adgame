@@ -50,6 +50,7 @@ export class Game {
       bossAlive: w?.boss.enemy?.alive ?? false,
       bossTelegraph: w?.boss.telegraph?.kind ?? null,
       drawn: this.view.instanceCounts(),
+      tracers: this.view.tracerCount,
       fog: !!this.renderer.scene.fog,
       quality: this.renderer.quality.level,
       tris: this.renderer.triangles,
