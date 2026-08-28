@@ -335,20 +335,29 @@ describe('射程无限 · 穿透', () => {
 });
 
 describe('墙上的倒刺', () => {
+  /** 把方阵直接送到指定的墙前面，省掉"能不能活着走到那儿"这件无关的事。 */
+  function atWall(lane: 'follow' | 'away') {
+    const w = new World({ levelId: 4, upgrades: mkUpgrades({ squad: 12, armor: 6 }), seed: 3 });
+    const wall = w.blocks.reduce((a, b) => (b.maxHp > a.maxHp ? b : a));
+    w.squad.addSoldiers(200);
+    w.squad.z = wall.z - 20;
+    const wallX = laneCenterX(wall.lane);
+    w.squad.x = lane === 'follow' ? wallX : (wallX > 0 ? -ROAD_HALF + 2 : ROAD_HALF - 2);
+    w.squad.layout();
+    w.enemies.clear();
+    return { w, wall, wantX: w.squad.x };
+  }
+
   it('撞上没打掉的墙会被串死一片，但方阵不减速也不卡住', () => {
     // 以前撞墙是"速度降到 16% 一点点蹭过去"，干等 + 整队人从墙里穿模。
     // 现在墙正面焊满倒刺：撞上去拿命填，方阵不减速地撞穿，墙碎、没有奖励。
-    const w = new World({ levelId: 5, upgrades: mkUpgrades({ squad: 12, armor: 6 }), seed: 3 });
-    // 挑一堵这支队伍绝对打不穿的厚墙
-    const wall = w.blocks.reduce((a, b) => (b.maxHp > a.maxHp ? b : a));
-    const wantX = laneCenterX(wall.lane);
+    const { w, wall, wantX } = atWall('follow');
     const dt = 1 / 60;
     let t = 0;
     let impaled = 0;
     let smashed = false;
     let crawl = Infinity;
-    // 先跑到墙跟前，量"贴着墙那一段"的推进速度
-    while (w.phase === 'running' && t < 200 && w.squad.z < wall.z + 8) {
+    while (w.phase === 'running' && t < 20 && w.squad.z < wall.z + 8) {
       w.steer = Math.abs(wantX - w.squad.x) > 0.3 ? Math.sign(wantX - w.squad.x) : 0;
       const z0 = w.squad.z;
       w.step(dt);
@@ -362,24 +371,74 @@ describe('墙上的倒刺', () => {
     expect(impaled, '撞上倒刺却一个人都没死').toBeGreaterThan(0);
     expect(smashed, '硬撞过去之后墙应当碎掉，不能让人从墙里穿过去').toBe(true);
     expect(wall.alive).toBe(false);
-    // 贴着墙的那一段仍然在正常速度推进（尸潮的拖拽另算，这里没怪）
+    // 贴着墙的那一段仍然在正常速度推进（这里清了场，没有尸潮的拖拽）
     expect(crawl, '撞墙时被拖慢了——这一版不该再有"蹭过去"的手感').toBeGreaterThan(4);
   });
 
   it('走别的排既不会被刺，也不会把墙撞碎', () => {
-    const w = new World({ levelId: 5, upgrades: mkUpgrades({ squad: 12, armor: 6 }), seed: 3 });
-    const wall = w.blocks.reduce((a, b) => (b.maxHp > a.maxHp ? b : a));
-    const away = laneCenterX(wall.lane) > 0 ? -ROAD_HALF + 2 : ROAD_HALF - 2;
+    const { w, wall, wantX } = atWall('away');
     const dt = 1 / 60;
     let t = 0;
     let impaled = 0;
-    while (w.phase === 'running' && t < 200 && w.squad.z < wall.z + 8) {
-      w.steer = Math.abs(away - w.squad.x) > 0.3 ? Math.sign(away - w.squad.x) : 0;
+    while (w.phase === 'running' && t < 20 && w.squad.z < wall.z + 8) {
+      w.steer = Math.abs(wantX - w.squad.x) > 0.3 ? Math.sign(wantX - w.squad.x) : 0;
       w.step(dt);
       for (const ev of w.drainEvents()) if (ev.type === 'impaled') impaled++;
       t += dt;
     }
     expect(impaled, '走别的排也被刺到了').toBe(0);
     expect(wall.alive, '走别的排却把墙撞碎了').toBe(true);
+  });
+});
+
+describe('开局就看得见的 Boss', () => {
+  it('第一帧起 Boss 就在远处，而且一路吊在方阵前方', () => {
+    // 以前 Boss 是走到竞技场跟前才凭空出现的，玩家一路上完全不知道自己
+    // 在往什么东西身上撞。现在它从第一帧就在雾的边缘慢慢走。
+    const w = new World({ levelId: 1, upgrades: NO_UPGRADES, seed: 4 });
+    expect(w.boss.enemy, '开局就应该有一只远处的 Boss').toBeTruthy();
+    expect(w.boss.previewing).toBe(true);
+    const gap0 = w.boss.enemy!.z - w.squad.z;
+    expect(gap0).toBeGreaterThan(100);
+
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * 8; i++) {
+      w.step(dt);
+      w.drainEvents();
+      if (w.phase !== 'running') break;
+    }
+    // 一路推进，它一直在前面（还没到竞技场之前距离基本不变）
+    expect(w.boss.enemy!.z - w.squad.z).toBeGreaterThan(100);
+    expect(w.boss.previewing, '还没走到竞技场就提前开打了').toBe(true);
+  });
+
+  it('预览态打不到也打不动：它还不在场上', () => {
+    const w = new World({ levelId: 1, upgrades: LEVELS_MAX_UPGRADES, loadout: ['squad', 'damage', 'fireRate', 'weapon'], seed: 4 });
+    const b = w.boss.enemy!;
+    expect(b.invulnerable).toBe(true);
+    const hp = b.hp;
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * 5; i++) {
+      w.step(dt);
+      w.drainEvents();
+    }
+    expect(b.hp, '远处那只黑影被打掉血了').toBe(hp);
+  });
+
+  it('走到竞技场时是同一只醒过来，不是重新生成一只', () => {
+    const w = new World({ levelId: 1, upgrades: LEVELS_MAX_UPGRADES, loadout: ['squad', 'damage', 'fireRate', 'weapon'], seed: 4 });
+    const before = w.boss.enemy!;
+    const dt = 1 / 60;
+    let woke = false;
+    for (let i = 0; i < 60 * 120 && !woke; i++) {
+      w.step(dt);
+      for (const ev of w.drainEvents()) if (ev.type === 'bossSpawn') woke = true;
+      if (w.phase !== 'running') break;
+    }
+    expect(woke, '一直没走到 Boss 战').toBe(true);
+    expect(w.boss.enemy, '入场时换了一只新的实例，模型会闪一下').toBe(before);
+    expect(w.boss.previewing).toBe(false);
+    expect(before.invulnerable).toBe(false);
+    expect(before.maxHp).toBeGreaterThan(1);
   });
 });

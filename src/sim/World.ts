@@ -165,6 +165,14 @@ export class World {
     }, this.rng);
 
     this.buildTrack();
+    // 开局就把 Boss 摆到远处：整关都看得见它在雾里慢慢走过来
+    const bossBeat = this.level.beats.find((b) => b.t === 'boss');
+    if (!this.level.endless && bossBeat && bossBeat.t === 'boss') {
+      this.boss.preview(
+        this.enemies, bossBeat.kind, bossBeat.scale, bossBeat.name,
+        Math.min(this.arenaZ, this.squad.z + BOSS.previewAhead),
+      );
+    }
     this.squad.layout();
     this.stats.peakSoldiers = this.squad.soldierCount;
   }
@@ -375,8 +383,22 @@ export class World {
       this.enemies.hpScale = this.level.enemyHpScale;
       const beat = this.level.beats.find((b) => b.t === 'boss');
       if (beat && beat.t === 'boss') {
-        this.boss.spawn(this.enemies, this.arenaZ, beat.hp, beat.scale, beat.name, beat.kind, out);
+        // 远处那只黑影直接接管，不再重新生成一只——模型不会闪一下再出现
+        if (this.boss.previewing) this.boss.awaken(this.arenaZ, beat.hp, out);
+        else this.boss.spawn(this.enemies, this.arenaZ, beat.hp, beat.scale, beat.name, beat.kind, out);
       }
+    }
+
+    // 预览态的 Boss：一直吊在方阵正前方那么远的地方慢慢走，直到竞技场为止。
+    // 到了竞技场它就停在那儿不动，剩下的距离由玩家自己冲——那一段路它会在
+    // 屏幕上飞快涨大，"越走越近越大"就是这样来的。
+    const pv = this.boss.previewing ? this.boss.enemy : null;
+    if (pv) {
+      pv.x = 0;
+      // min 而不是 max：竞技场在几百米开外，取 max 的话它会一直钉在终点，
+      // 整关都糊在雾里看不见。取 min = 一路吊在方阵前方 168 米，
+      // 直到方阵逼近竞技场，它才停在那儿等你冲上来。
+      pv.z = Math.min(this.arenaZ, this.squad.z + BOSS.previewAhead);
     }
 
     // ── 战斗 ────────────────────────────────────────────────

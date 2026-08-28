@@ -5,6 +5,7 @@ import type { Squad } from './Squad';
 import type { Enemy, SimEvent } from './types';
 
 type BossState =
+  | 'preview'       // 开局就站在远处慢慢走过来的那只，纯观感，不打人也打不动
   | 'approach'
   | 'idle'
   | 'cast'          // 通用：正在读条（预警亮着），到点结算
@@ -78,29 +79,75 @@ export class BossController {
     return this.enemy && this.enemy.maxHp > 0 ? Math.max(0, this.enemy.hp / this.enemy.maxHp) : 0;
   }
 
-  spawn(pool: EnemyPool, arenaZ: number, hp: number, scale: number, name: string, kind: BossKind, out: SimEvent[]): void {
+  /** 还没开打——这只 Boss 现在只是远处那个越走越近的黑影。 */
+  get previewing(): boolean {
+    return this.state === 'preview';
+  }
+
+  /**
+   * 开局就把 Boss 放到远处。
+   *
+   * 以前 Boss 是走到竞技场跟前才凭空出现的，玩家一路上完全不知道自己在往
+   * 什么东西身上撞。现在从第一帧起它就站在雾的边缘，慢慢往这边走——你一路
+   * 推进，它一路变大，压迫感是攒了一整关攒出来的，不是最后十秒才有的。
+   *
+   * 预览态的它无敌、不放招、不参与索敌，纯粹是个会走路的剪影。
+   */
+  preview(pool: EnemyPool, kind: BossKind, scale: number, name: string, z: number): void {
     this.name = name;
     this.kind = kind;
-    const plan = BOSS_PLANS[kind];
+    this.state = 'preview';
+    this.phase = 0;
+    this.timer = 0;
+    this.fightTime = 0;
+    this.telegraph = null;
+    this.casting = null;
+    this.enemy = pool.spawn('boss', 0, z, {
+      hp: 1,
+      scale: ENEMY_STATS.boss.scale * scale,
+      scripted: true,
+    });
+    // 打不到也不吃伤害：它还不在场上
+    this.enemy.invulnerable = true;
+  }
+
+  /**
+   * 远处那只黑影正式入场——补上真血量，接管技能状态机。
+   * 复用同一个 enemy 实例，所以模型不会闪一下再出现。
+   */
+  awaken(arenaZ: number, hp: number, out: SimEvent[]): void {
+    const b = this.enemy;
+    if (!b) return;
+    const plan = BOSS_PLANS[this.kind];
     // 初始冷却错开，开场不会所有招同时就绪
     this.cds = plan.abilities.map((ab, i) => ab.cd * (0.35 + i * 0.22));
     this.casting = null;
     this.quakeSide = 1;
-    this.enemy = pool.spawn('boss', 0, arenaZ + 16, {
-      hp,
-      scale: ENEMY_STATS.boss.scale * scale,
-      scripted: true,
-    });
+    b.hp = hp;
+    b.maxHp = hp;
+    b.invulnerable = false;
+    b.z = Math.max(b.z, arenaZ);
     this.phase = 0;
     this.state = 'approach';
     this.timer = 0;
     this.fightTime = 0;
-    out.push({ type: 'bossSpawn', x: 0, z: arenaZ, text: name, amount: hp, kind: 'boss' });
+    out.push({ type: 'bossSpawn', x: 0, z: arenaZ, text: this.name, amount: hp, kind: 'boss' });
+  }
+
+  spawn(pool: EnemyPool, arenaZ: number, hp: number, scale: number, name: string, kind: BossKind, out: SimEvent[]): void {
+    this.preview(pool, kind, scale, name, arenaZ + 16);
+    this.awaken(arenaZ, hp, out);
   }
 
   update(dt: number, squad: Squad, pool: EnemyPool, out: SimEvent[]): void {
     const b = this.enemy;
     if (!b || !b.alive) {
+      this.telegraph = null;
+      return;
+    }
+    // 预览态：只走路，不做别的。位置由 World 每帧摆好（一直吊在方阵前方）。
+    if (this.state === 'preview') {
+      b.phase += dt * BOSS.previewStride;
       this.telegraph = null;
       return;
     }

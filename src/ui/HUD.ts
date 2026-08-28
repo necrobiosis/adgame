@@ -134,7 +134,8 @@ export class HUD {
     }
 
     const boss = world.boss.enemy;
-    if (boss && boss.alive) {
+    // 预览态的那只只是远处的黑影，血条要等它真正入场才出现
+    if (boss && boss.alive && !world.boss.previewing) {
       this.bossBar.classList.add('on');
       this.bossName.textContent = world.boss.name;
       this.bossHp.textContent = formatHp(Math.ceil(boss.hp));
