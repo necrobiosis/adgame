@@ -981,6 +981,10 @@ export class GameView {
 
     // 矩形/条状预警：半场毒爆、带缺口的火墙、扫射光束
     this.areaTg.begin();
+    // 空袭的地面预警：一整块盖住整条弹幕走廊的橙红区域。
+    // 一发能抹掉半条街，落地前必须先把"要炸哪儿"摊在地上给玩家看清楚。
+    const sz = world.strikeZone;
+    if (sz) this.areaTg.push(sz.x, sz.z, sz.halfW * 2, sz.halfZ * 2, sz.t, 0xff5a1a);
     if (tg && tg.kind === 'quake' && tg.x0 !== undefined && tg.x1 !== undefined) {
       this.areaTg.push((tg.x0 + tg.x1) / 2, tg.z, tg.x1 - tg.x0, (tg.halfZ ?? 12) * 2, tg.t, 0x9ce85a);
       if (this.rng.next() < 0.6) {
@@ -1217,22 +1221,45 @@ export class GameView {
           break;
         }
         case 'strikeCall': {
-          this.floats.push({ text: '空袭已呼叫', color: '#ffb03a', x: ev.x!, y: 4.2, z: ev.z!, big: true });
+          this.floats.push({ text: '空袭已呼叫', color: '#ff7a1a', x: ev.x!, y: 4.2, z: ev.z!, big: true });
+          // 呼叫到落地之间有一秒多的空白，那段等待本身就是戏——
+          // 用一排从近到远点亮的地面标记把这一秒填满
+          for (let i = 0; i < 10; i++) {
+            const zz = ev.z! - 20 + i * 4.4;
+            this.sparks.burst(ev.x! + (this.rng.next() - 0.5) * 12, 0.15, zz, {
+              count: 2, color: 0xff8a2a, speed: [0.4, 1.6], size: [0.5, 0.9],
+              life: [0.6, 1.1], grow: -0.4, lift: 2.4, drag: 0.6,
+            });
+          }
           break;
         }
         case 'strikeImpact': {
+          const R = ev.radius ?? 8.2;
+          // 火球核心：一小撮极亮的白，读作"这里刚刚过曝了"
+          this.sparks.burst(ev.x!, 1.0, ev.z!, {
+            count: 26, color: 0xffffff, color2: 0xffd07a, speed: [3, 12], size: [1.4, 3.4],
+            life: [0.12, 0.3], grow: 3.2, drag: 4.5,
+          });
+          // 外层的火与碎屑：又快又远，沿速度方向拉成条
           this.sparks.burst(ev.x!, 0.5, ev.z!, {
-            count: 44, color: 0xfff2c8, color2: 0xc03c06, speed: [7, 22], size: [0.7, 1.9],
-            life: [0.25, 0.62], grow: 1.8, drag: 2.6, stretch: 2.8,
+            count: 80, color: 0xfff2c8, color2: 0x8f2404, speed: [10, 34], size: [0.8, 2.4],
+            life: [0.3, 0.85], grow: 1.6, drag: 2.2, stretch: 3.4,
           });
-          this.smoke.burst(ev.x!, 0.6, ev.z!, {
-            count: 16, color: 0x8f887f, color2: 0x33302c, speed: [2, 8], size: [1.4, 3.0],
-            life: [0.7, 1.5], grow: 3.6, drag: 1.8, lift: 2.2, fadeIn: 0.18,
+          // 蘑菇云：一柱往上翻的浓烟，一秒多才散
+          this.smoke.burst(ev.x!, 1.2, ev.z!, {
+            count: 30, color: 0xa39a90, color2: 0x2a2724, speed: [2.5, 11], size: [2.2, 5.2],
+            life: [1.2, 2.6], grow: 4.6, drag: 1.5, lift: 4.5, fadeIn: 0.15,
           });
-          this.waves.spawn(ev.x!, ev.z!, 0.8, (ev.radius ?? 6.4) * 2, 0xffb257, 0.5, 1.4);
-          this.flashes.flash(ev.x!, 2.0, ev.z!, 0xff9a38, 170, 0.28);
-          this.decals.add('scorch', ev.x!, ev.z!, (ev.radius ?? 6.4) * 1.5, 0.42);
-          this.camera.punch(0.42);
+          // 两圈冲击波：一圈又快又薄先冲出去，一圈厚的慢慢跟上
+          this.waves.spawn(ev.x!, ev.z!, 1.0, R * 3.2, 0xfff0c0, 0.42, 1.9);
+          this.waves.spawn(ev.x!, ev.z!, 0.8, R * 2.0, 0xff7a1a, 0.75, 1.1);
+          // 抛起来的碎块
+          this.gibs.burst(ev.x!, 1.2, ev.z!, 10);
+          this.flashes.flash(ev.x!, 3.0, ev.z!, 0xffb257, 420, 0.4);
+          this.decals.add('scorch', ev.x!, ev.z!, R * 1.8, 0.6);
+          // 这是玩家一局只放一两次的东西，抖动不走每帧预算，直接给足。
+          // 但只有第一发给满——十六发全给满的话镜头会整轮钉在上限。
+          this.camera.punch(ev.amount === 1 ? 0.7 : 0.2);
           break;
         }
         case 'spitterFire': {

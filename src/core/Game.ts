@@ -392,7 +392,11 @@ export class Game {
         case 'leaperJump': this.audio.leap(pan(ev.x)); break;
         case 'leaperLand': this.audio.footstep(pan(ev.x)); break;
         case 'strikeCall': this.audio.strikeCall(); break;
-        case 'strikeImpact': this.audio.explosion(pan(ev.x)); break;
+        case 'strikeImpact':
+          this.audio.explosion(pan(ev.x));
+          // 第一发落地时全屏过曝一下
+          if (ev.amount === 1) this.floats.flash('#ffd9a0');
+          break;
         case 'bossLightningHit':
           this.audio.thunderCrack(pan(ev.x));
           this.floats.flash();
@@ -407,7 +411,11 @@ export class Game {
         case 'bossSlamHit':
         case 'bossLightningHit': this.hitstop = Math.max(this.hitstop, 0.075); break;
         case 'blockDestroyed': this.hitstop = Math.max(this.hitstop, 0.06); break;
-        case 'strikeImpact': this.hitstop = Math.max(this.hitstop, 0.04); break;
+        // 空袭一局只有一两发，第一发落地那一下值得一次明显的时间冻结。
+        // 只认第一发：十六发每发都冻一次，整轮就变成一段卡顿的慢动作。
+        case 'strikeImpact':
+          if (ev.amount === 1) this.hitstop = Math.max(this.hitstop, 0.11);
+          break;
         case 'midbossAbilityHit': this.hitstop = Math.max(this.hitstop, 0.05); break;
         case 'bossQuakeHit':
         case 'bossBreathHit':

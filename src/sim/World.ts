@@ -89,9 +89,25 @@ export class World {
   ramming = false;
 
   /** 空袭充能 0..1。满了才能呼叫。 */
-  strikeCharge = 0;
+  /**
+   * 这一局还剩几发空袭。
+   *
+   * 不再是一条会自己长回来的充能条——一局就这么多发，用一发少一发。
+   * "什么时候用"因此成了这一整局最重的一个决定，而不是攒满就随手扔。
+   */
+  strikeLeft = 0;
+  /** 距离下一发可用还有几秒（带多发时的硬冷却）。 */
+  strikeCd = 0;
+  /**
+   * 弹幕落地前的地面预警区（渲染层直接读）。
+   *
+   * 一发能抹掉半条街的东西，必须提前一秒多在地上画出来：一是让玩家看清
+   * "我到底炸到了什么"，二是这一秒的等待本身就是戏——喊完到炸响之间那段
+   * 空白才是最有压迫感的地方。
+   */
+  strikeZone: { x: number; z: number; halfW: number; halfZ: number; t: number } | null = null;
   /** 已呼叫、还在飞行途中的炸弹。 */
-  private pendingBombs: { t: number; x: number; z: number }[] = [];
+  private pendingBombs: { t: number; x: number; z: number; first: boolean }[] = [];
   /** 当前正在啃的那堵半宽墙，以及已经啃了多久（用于超时放弃）。 */
 
   private readonly rng: Rng;
@@ -109,7 +125,6 @@ export class World {
   /** 出征模块换算出来的四个局内系数（见构造函数）。 */
   private readonly advanceMul: number;
   private readonly goldMul: number;
-  private readonly strikeChargeMul: number;
   private readonly strikeRadiusMul: number;
 
   /** 倒刺攒下的不满一人的伤亡零头。 */
@@ -152,7 +167,7 @@ export class World {
 
     this.advanceMul = 1 + lv('vanguard') * E.vanguardSpeed;
     this.goldMul = 1 + lv('scavenger') * E.scavengerGold;
-    this.strikeChargeMul = 1 + lv('strikeSpec') * E.strikeCharge;
+    this.strikeLeft = AIRSTRIKE.baseCharges + lv('strikeSpec') * E.strikeCharges;
     this.strikeRadiusMul = 1 + lv('strikeSpec') * E.strikeRadius;
 
     this.squad = new Squad({
@@ -411,10 +426,6 @@ export class World {
     for (const ev of out) {
       if (ev.type !== 'kill') continue;
       this.stats.kills++;
-      // 打得越凶技能来得越快，鼓励主动接战而不是龟着等冷却
-      if (this.strikeCharge < 1) {
-        this.strikeCharge = Math.min(1, this.strikeCharge + this.strikeChargeMul * AIRSTRIKE.chargePerKill / AIRSTRIKE.chargeSeconds);
-      }
     }
     // 拾荒专精只影响局内进账，不影响关卡结算奖励——否则它会变成
     // "反正最后都能赚回来"的无脑必带
@@ -424,9 +435,7 @@ export class World {
     this.stats.peakSoldiers = Math.max(this.stats.peakSoldiers, this.squad.soldierCount);
 
     // ── 空袭 ────────────────────────────────────────────────
-    if (this.strikeCharge < 1) {
-      this.strikeCharge = Math.min(1, this.strikeCharge + this.strikeChargeMul * dt / AIRSTRIKE.chargeSeconds);
-    }
+    if (this.strikeCd > 0) this.strikeCd = Math.max(0, this.strikeCd - dt);
     this.updateBombs(dt, out);
 
     for (const b of this.blocks) if (b.flash > 0) b.flash = Math.max(0, b.flash - dt);
@@ -468,25 +477,45 @@ export class World {
    * 落点锚在呼叫瞬间方阵的横向位置——所以"瞄准"就是走位本身。
    */
   callAirstrike(): boolean {
-    if (this.strikeCharge < 1 || this.phase !== 'running') return false;
-    this.strikeCharge = 0;
+    if (this.strikeLeft <= 0 || this.strikeCd > 0 || this.phase !== 'running') return false;
+    this.strikeLeft--;
+    this.strikeCd = AIRSTRIKE.cooldown;
     const cx = this.squad.x;
     const cz = this.squad.z + AIRSTRIKE.ahead;
     for (let i = 0; i < AIRSTRIKE.bombs; i++) {
       const t = AIRSTRIKE.bombs > 1 ? i / (AIRSTRIKE.bombs - 1) : 0.5;
       this.pendingBombs.push({
-        // 沿纵深一路铺过去，读起来像一串炸弹连着炸，而不是一发大的
-        t: AIRSTRIKE.delay + t * 0.55,
+        // 沿纵深一路铺过去，读起来是一条从近到远碾过去的火线，
+        // 而不是一发大的砸在同一个点上
+        first: i === 0,
+        // t^0.65：前半段落得更密，开场就是一片，而不是匀速的一串
+        t: AIRSTRIKE.delay + Math.pow(t, 0.65) * AIRSTRIKE.rollOut,
         x: clamp(cx + this.rng.range(-AIRSTRIKE.spreadX, AIRSTRIKE.spreadX), -ROAD_HALF, ROAD_HALF),
-        z: cz + (t - 0.5) * AIRSTRIKE.spreadZ + this.rng.range(-2, 2),
+        z: cz + (t - 0.5) * AIRSTRIKE.spreadZ + this.rng.range(-3, 3),
       });
     }
-    this.events.push({ type: 'strikeCall', x: cx, y: 0, z: cz });
+    this.strikeZone = {
+      x: cx, z: cz,
+      halfW: AIRSTRIKE.spreadX + AIRSTRIKE.radius * this.strikeRadiusMul,
+      halfZ: AIRSTRIKE.spreadZ / 2 + AIRSTRIKE.radius * this.strikeRadiusMul,
+      t: 0,
+    };
+    this.events.push({ type: 'strikeCall', x: cx, y: 0, z: cz, amount: this.strikeLeft });
     return true;
   }
 
   private updateBombs(dt: number, out: SimEvent[]): void {
-    if (this.pendingBombs.length === 0) return;
+    if (this.pendingBombs.length === 0) {
+      this.strikeZone = null;
+      return;
+    }
+    // 预警区跟着还没落地的那些弹算——最后一发炸完就消失
+    if (this.strikeZone) {
+      let maxT = 0;
+      for (const b of this.pendingBombs) maxT = Math.max(maxT, b.t);
+      this.strikeZone.t = 1 - Math.min(1, maxT / (AIRSTRIKE.delay + AIRSTRIKE.rollOut));
+    }
+
     const radius = AIRSTRIKE.radius * this.strikeRadiusMul;
     const r2 = radius * radius;
     for (let i = this.pendingBombs.length - 1; i >= 0; i--) {
@@ -507,7 +536,10 @@ export class World {
       }
       this.gold += Math.round(gold * this.goldMul);
       this.stats.goldEarned += gold;
-      out.push({ type: 'strikeImpact', x: b.x, y: 0.3, z: b.z, radius });
+      // amount = 1 标记这一轮的第一发：屏幕闪白、时间冻结、最重的一次镜头
+      // 抖动都只跟着它走。十六发每一发都来一遍的话，整轮读起来就是一段
+      // 卡住的慢动作，反而不炸了。
+      out.push({ type: 'strikeImpact', x: b.x, y: 0.3, z: b.z, radius, amount: b.first ? 1 : 0 });
     }
   }
 

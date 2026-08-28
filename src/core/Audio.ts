@@ -355,11 +355,18 @@ export class Audio {
   /** 呼叫空袭：一声由远及近的引擎啸叫，给落弹留出期待。 */
   strikeCall(): void {
     if (!this.ready()) return;
-    this.duck(1.2);
+    this.duck(2.2);
     // 俯冲的引擎声：低频上扬 + 一层拉宽的噪声
-    this.tone({ type: 'sawtooth', f0: 160, f1: 520, dur: 0.85, gain: 0.24, send: 0.5, attack: 0.5 });
-    this.tone({ type: 'square', f0: 80, f1: 260, dur: 0.85, gain: 0.12, send: 0.4, attack: 0.55 });
-    this.noise({ f0: 400, f1: 2200, dur: 0.85, gain: 0.18, q: 2.0, bank: 1, send: 0.45, attack: 0.6 });
+    this.tone({ type: 'sawtooth', f0: 150, f1: 620, dur: 1.15, gain: 0.28, send: 0.5, attack: 0.7 });
+    this.tone({ type: 'square', f0: 74, f1: 300, dur: 1.15, gain: 0.14, send: 0.4, attack: 0.75 });
+    this.noise({ f0: 380, f1: 2600, dur: 1.15, gain: 0.2, q: 2.0, bank: 1, send: 0.45, attack: 0.8 });
+    // 一局只放一两次的东西，得配一声真正的警报：两个失谐的方波来回扫
+    for (const d of [0, 0.42]) {
+      this.tone({ type: 'square', f0: 620, f1: 940, dur: 0.34, gain: 0.1, send: 0.4, attack: 0.12, detune: -8 });
+      void d;
+    }
+    // 呼啸下坠：从高扫到低，接在爆炸前一刻
+    this.noise({ type: 'bandpass', f0: 3200, f1: 300, dur: 1.0, gain: 0.16, q: 1.4, bank: 0, send: 0.5, attack: 0.5 });
   }
 
   /** 跳跃者起跳：一声短促上扬的嘶吼。 */

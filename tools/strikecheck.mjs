@@ -26,7 +26,7 @@ await page.waitForTimeout(700);
 const btn = () => page.evaluate(() => {
   const b = document.querySelector('.strike');
   return { exists: !!b, ready: b?.classList.contains('ready') ?? false, disabled: b?.disabled ?? null,
-           charge: +(window.__game.world?.strikeCharge ?? -1).toFixed(2) };
+           left: window.__game.world?.strikeLeft ?? -1, cd: +(window.__game.world?.strikeCd ?? -1).toFixed(1) };
 });
 console.log('开局      ', JSON.stringify(await btn()));
 
@@ -55,7 +55,7 @@ await page.waitForTimeout(1400);
 await page.screenshot({ path: `${SHOTS}/strike-hit.png`, timeout: 120000 });
 const after = await page.evaluate(() => ({
   alive: window.__game.world.enemies.list.filter((e) => e.alive).length,
-  charge: +window.__game.world.strikeCharge.toFixed(2),
+  left: window.__game.world.strikeLeft,
   waves: window.__game.view.waves?.mesh.count ?? -1,
 }));
 console.log('靶子', targetsBefore, '→', after.alive, ' 充能归零?', after.charge < 0.5, JSON.stringify(after));

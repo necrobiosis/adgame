@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ENDLESS_ID } from '../../src/config/levels';
 import { World } from '../../src/sim/World';
-import { BUFF_CAP, ROAD_HALF, SOLDIER, WEAPON_TIERS, rangeFalloff, type UpgradeId } from '../../src/config/balance';
+import { AIRSTRIKE, BUFF_CAP, ROAD_HALF, SOLDIER, WEAPON_TIERS, rangeFalloff, type UpgradeId } from '../../src/config/balance';
 import { LANE_SIGN, laneBounds, laneCenterX } from '../../src/sim/lanes';
 import { LEVELS_MAX_UPGRADES, NO_UPGRADES, upgrades as mkUpgrades } from './fixtures';
 
@@ -440,5 +440,66 @@ describe('开局就看得见的 Boss', () => {
     expect(w.boss.previewing).toBe(false);
     expect(before.invulnerable).toBe(false);
     expect(before.maxHp).toBeGreaterThan(1);
+  });
+});
+
+describe('空袭：一局几发', () => {
+  it('默认一局只有一发，用掉就没了', () => {
+    // 以前是一条会自己长回来的充能条，一局能放五六次，每一次都不值钱。
+    // 现在一局就这么多发，"什么时候用"才成了一个真的决定。
+    const w = new World({ levelId: 1, upgrades: NO_UPGRADES, seed: 7 });
+    expect(w.strikeLeft).toBe(AIRSTRIKE.baseCharges);
+    expect(w.callAirstrike()).toBe(true);
+    expect(w.strikeLeft).toBe(0);
+    expect(w.callAirstrike(), '没发了还能放').toBe(false);
+    // 干等也不会长回来
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * 40; i++) {
+      w.step(dt);
+      w.drainEvents();
+      if (w.phase !== 'running') break;
+    }
+    expect(w.strikeLeft, '空袭不该自己长回来').toBe(0);
+  });
+
+  it('带多发也不能一口气全倒出来：中间有硬冷却', () => {
+    const w = new World({
+      levelId: 1,
+      upgrades: LEVELS_MAX_UPGRADES,
+      loadout: ['squad', 'damage', 'weapon', 'strikeSpec'],
+      seed: 7,
+    });
+    expect(w.strikeLeft, '空袭引导满级应该多带 3 发').toBe(AIRSTRIKE.baseCharges + 3);
+    expect(w.callAirstrike()).toBe(true);
+    expect(w.callAirstrike(), '冷却里还能连着放第二发').toBe(false);
+    expect(w.strikeCd).toBeGreaterThan(0);
+    const dt = 1 / 60;
+    for (let i = 0; i < Math.ceil(AIRSTRIKE.cooldown / dt) + 10; i++) {
+      w.step(dt);
+      w.drainEvents();
+      if (w.phase !== 'running') break;
+    }
+    if (w.phase === 'running') {
+      expect(w.strikeCd).toBe(0);
+      expect(w.callAirstrike(), '冷却转完了却放不出来').toBe(true);
+    }
+  });
+
+  it('落地前有一整块地面预警，炸完就消失', () => {
+    // 一发能抹掉半条街，落地前必须先把"要炸哪儿"摊在地上给玩家看清楚
+    const w = new World({ levelId: 1, upgrades: NO_UPGRADES, seed: 7 });
+    expect(w.strikeZone).toBeNull();
+    w.callAirstrike();
+    expect(w.strikeZone, '呼叫之后应当有预警区').toBeTruthy();
+    expect(w.strikeZone!.halfZ).toBeGreaterThan(10);
+    const dt = 1 / 60;
+    let impacts = 0;
+    for (let i = 0; i < 60 * 6; i++) {
+      w.step(dt);
+      for (const ev of w.drainEvents()) if (ev.type === 'strikeImpact') impacts++;
+      if (w.phase !== 'running') break;
+    }
+    expect(impacts, '弹幕该有的发数没落全').toBe(AIRSTRIKE.bombs);
+    expect(w.strikeZone, '炸完了预警区还挂在地上').toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { AIRSTRIKE } from '../config/balance';
 import { formatHp } from '../render/hud3d/BlockMesh';
 import type { World } from '../sim/World';
 
@@ -25,6 +26,8 @@ export class HUD {
   private readonly strikeBtn: HTMLButtonElement;
   private readonly strikeRing: HTMLElement;
   private strikeReady: boolean | null = null;
+  private readonly strikeCount: HTMLElement;
+  private strikeLeftShown = -1;
 
   constructor(parent: HTMLElement) {
     this.root = h(`
@@ -46,6 +49,7 @@ export class HUD {
         <button class="strike" type="button" aria-label="空袭">
           <span class="ring"></span>
           <span class="icon">空袭</span>
+          <span class="count"></span>
         </button>
         <div class="hud-bottom">
           <div class="progress-label"><span class="lname">第一关</span><span class="lpct">0%</span></div>
@@ -71,6 +75,7 @@ export class HUD {
     this.squadBadge = q('.squad-badge');
     this.strikeBtn = q('.strike') as HTMLButtonElement;
     this.strikeRing = q('.strike .ring');
+    this.strikeCount = q('.strike .count');
   }
 
   /** 空袭按钮的点击回调由 Game 装上。 */
@@ -122,11 +127,19 @@ export class HUD {
     this.progressPct.textContent = world.level.endless ? `${Math.round(world.distance)} m` : `${pct}%`;
     this.progressFill.style.width = `${pct}%`;
 
-    // 充能环用 conic-gradient 画，满了才点亮并允许点击
-    const c = Math.max(0, Math.min(1, world.strikeCharge));
-    this.strikeRing.style.background =
-      `conic-gradient(#ffb03a ${c * 360}deg, rgba(255,255,255,0.10) 0deg)`;
-    const ready = c >= 1;
+    // 空袭是"一局几发"，不是一条会自己长回来的充能条。
+    // 环画的是两发之间的硬冷却，按钮上的数字是**还剩几发**——
+    // 玩家一眼要看到的是"我还有没有"，而不是"还要等多久"。
+    const left = world.strikeLeft;
+    const cd = Math.max(0, Math.min(1, 1 - world.strikeCd / AIRSTRIKE.cooldown));
+    this.strikeRing.style.background = left <= 0
+      ? 'rgba(255,255,255,0.06)'
+      : `conic-gradient(#ffb03a ${cd * 360}deg, rgba(255,255,255,0.10) 0deg)`;
+    const ready = left > 0 && world.strikeCd <= 0;
+    if (left !== this.strikeLeftShown) {
+      this.strikeLeftShown = left;
+      this.strikeCount.textContent = left > 0 ? `×${left}` : '';
+    }
     if (ready !== this.strikeReady) {
       this.strikeReady = ready;
       this.strikeBtn.classList.toggle('ready', ready);

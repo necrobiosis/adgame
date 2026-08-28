@@ -369,22 +369,37 @@ export const LEAPER = {
  * 选门、瞄空袭。一个动词承担四种决策，比再加一根摇杆更适合这个竖屏单手游戏。
  */
 export const AIRSTRIKE = {
-  /** 充满需要多少秒（击杀会额外加速，见 World.step）。 */
-  chargeSeconds: 26,
-  /** 每次击杀折算多少秒充能——打得越凶，技能来得越快。 */
-  chargePerKill: 0.14,
+  /**
+   * 一局带几发。
+   *
+   * 以前是一条一直在涨的充能条，打得凶就转得快——结果一局能放五六次，
+   * 每一次都不值钱，玩家一攒满就随手扔掉。改成**一局就这么多发**：
+   * 默认只有一发，什么时候用是这一整局最重的一个决定。想多带，
+   * 去兵工厂买「空袭引导」。
+   */
+  baseCharges: 1,
+  /** 两发之间的硬冷却——带了多发也不能一口气全倒出来。 */
+  cooldown: 22,
   /** 落点在方阵前方多远。 */
-  ahead: 30,
-  /** 一次投几发。 */
-  bombs: 7,
+  ahead: 34,
+  /** 一次投几发。这一版是地毯式覆盖，不是点名。 */
+  bombs: 20,
   /** 投弹沿纵深铺开的范围。 */
-  spreadZ: 16,
-  spreadX: 5.5,
+  spreadZ: 42,
+  spreadX: 8.5,
   /** 从呼叫到第一发落地的延迟——听得到、看得见、来得及期待。 */
-  delay: 0.9,
-  damage: 520,
-  radius: 6.4,
-  splashEdge: 0.45,
+  delay: 1.15,
+  /**
+   * 整轮弹幕从第一发到最后一发铺完用多久。
+   *
+   * 第一版给了 1.5 秒，结果二十发摊在一秒半里，任何一帧都只有一朵烟，
+   * 读起来是"噗噗噗"一串小响，不是一次覆盖。压到 0.85 秒，再让落点按
+   * t^0.65 排（前半段挤得更密），第一下才炸得出那种"整条街同时腾起来"的感觉。
+   */
+  rollOut: 0.85,
+  damage: 2200,
+  radius: 8.2,
+  splashEdge: 0.5,
 } as const;
 
 /**
@@ -654,7 +669,7 @@ export const UPGRADES: readonly UpgradeDef[] = [
   { id: 'horde',      name: '人海战术', desc: '每级 +8 名起始士兵',   drawback: '每级 −7% 全队伤害',  maxLevel: 4, cost: (l) => 420 + l * 380 },
   { id: 'vanguard',   name: '轻装突击', desc: '每级 +9% 推进速度',     drawback: '每级 −10% 士兵生命', maxLevel: 3, cost: (l) => 500 + l * 460 },
   { id: 'scavenger',  name: '拾荒专精', desc: '每级 +22% 局内金币',    drawback: '不提供任何战斗力',   maxLevel: 3, cost: (l) => 480 + l * 420 },
-  { id: 'strikeSpec', name: '空袭引导', desc: '每级 +22% 空袭充能、+8% 范围', drawback: '不提供任何被动战力', maxLevel: 3, cost: (l) => 560 + l * 500 },
+  { id: 'strikeSpec', name: '空袭引导', desc: '每级本局 +1 发空袭、+10% 范围', drawback: '不提供任何被动战力', maxLevel: 3, cost: (l) => 560 + l * 500 },
 ];
 
 export const UPGRADE_EFFECT = {
@@ -671,8 +686,9 @@ export const UPGRADE_EFFECT = {
   vanguardSpeed: 0.09,
   vanguardHpPenalty: 0.10,
   scavengerGold: 0.22,
-  strikeCharge: 0.22,
-  strikeRadius: 0.08,
+  /** 空袭引导每级多带一发。 */
+  strikeCharges: 1,
+  strikeRadius: 0.10,
 } as const;
 
 /** 起始配置（未买任何升级时）。 */
