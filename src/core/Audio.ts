@@ -93,6 +93,7 @@ export class Audio {
   // 初值取负数：AudioContext 刚建好时 currentTime 就是 0，如果这两个也是 0，
   // 第一发枪声和第一声爆炸会被自己的限流判定吃掉。
   private lastShot = -1;
+  private lastBite = -1;
   private shotBudget = 0;
   private lastBoom = -1;
   private boomSkipped = 0;
@@ -326,6 +327,23 @@ export class Audio {
   }
 
   /** 酸液落地：一声湿黏的"啪嗒"加一点嘶嘶的腐蚀声。 */
+  /**
+   * 撕咬：湿闷的一口。
+   *
+   * 短促的低频"噗"打底，叠一层带通噪声当撕裂的质感，再来一小段更高的尾音。
+   * 有速率上限——几十只僵尸同时啃的时候，每一口都响会糊成白噪声。
+   */
+  bite(pan = 0): void {
+    if (!this.ready()) return;
+    const now = this.ctx!.currentTime;
+    if (now - this.lastBite < 0.055) return;
+    this.lastBite = now;
+    const jit = 0.85 + Math.random() * 0.3;
+    this.noise({ type: 'lowpass', f0: 900 * jit, f1: 160, dur: 0.09, gain: 0.3, pan, bank: 2, send: 0.16 });
+    this.noise({ f0: 2100 * jit, f1: 700, dur: 0.06, gain: 0.14, q: 2.4, pan, bank: 1, send: 0.12 });
+    this.tone({ f0: 120 * jit, f1: 52, dur: 0.08, gain: 0.16, pan });
+  }
+
   acidSplash(pan = 0): void {
     if (!this.ready()) return;
     this.noise({ type: 'lowpass', f0: 1500, f1: 280, dur: 0.18, gain: 0.26, pan, bank: 2, send: 0.35 });

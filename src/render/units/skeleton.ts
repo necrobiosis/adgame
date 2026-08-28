@@ -189,23 +189,32 @@ int boneParent(int b) {
  * 以前只返回一个绕 X 的角度，所以整套动作只有"前后摆"一个自由度——
  * 没有转身、没有侧倾、没有扭腰，走路和攻击都读起来像纸片人。
  *
- * state: 0 = 行走，1 = 攻击
+ * state: 0 = 行走，1 = 攻击，2 = 啃食（只有僵尸会到 2）
  * flash: 受击闪白强度，顺便当作"刚挨了一下"的信号驱动一个退缩姿势
  * pose:  0 = 僵尸（张牙舞爪地扑），1 = 士兵（端枪射击）
  *
  * 士兵和僵尸的"攻击"完全是两回事：僵尸是抡胳膊，士兵是端起枪顶住肩膀。
  * 之前两边共用同一套抡胳膊的姿势，士兵交火时看起来像在挠人。
+ *
+ * 啃食（state 2）是第三套姿势：整个人弓下去、脑袋压到最低、双手往胸口扒，
+ * 再叠一个高频的咀嚼点头。僵尸咬到人的那一下必须看得出它在**吃**，
+ * 而不是站在原地挥手。
  */
 vec3 boneAngles(int b, float ph, float state, float flash, float pose) {
   float sw = sin(ph);
   // 受击退缩：上半身往后仰、脑袋偏开，幅度很小但足以读出"疼"
   float hit = clamp(flash, 0.0, 1.0);
+  // state 超过 1 的那一段是"啃食"，只有僵尸吃得到（pose=0）
+  float eat = clamp(state - 1.0, 0.0, 1.0) * (1.0 - pose);
+  float st = min(state, 1.0);
+  // 咀嚼：一个比走路快得多的小幅点头，读起来是"在撕"
+  float chew = sin(ph * 13.0);
 
-  if (b == BONE_THIGH_L) return vec3(sw * 0.72, 0.0, 0.0);
-  if (b == BONE_THIGH_R) return vec3(-sw * 0.72, 0.0, 0.0);
+  if (b == BONE_THIGH_L) return vec3(mix(sw * 0.72, 0.62, eat), 0.0, 0.0);
+  if (b == BONE_THIGH_R) return vec3(mix(-sw * 0.72, 0.5, eat), 0.0, 0.0);
   // 膝盖只能往一个方向弯
-  if (b == BONE_SHIN_L)  return vec3(-max(0.0, -sin(ph + 0.9)) * 1.05, 0.0, 0.0);
-  if (b == BONE_SHIN_R)  return vec3(-max(0.0,  sin(ph + 0.9)) * 1.05, 0.0, 0.0);
+  if (b == BONE_SHIN_L)  return vec3(mix(-max(0.0, -sin(ph + 0.9)) * 1.05, -0.85, eat), 0.0, 0.0);
+  if (b == BONE_SHIN_R)  return vec3(mix(-max(0.0,  sin(ph + 0.9)) * 1.05, -0.7, eat), 0.0, 0.0);
   // 射击姿势：两臂端平指向正前方，右臂略收把枪托顶在肩上，
   // 再叠一个高频小幅的后坐抖动——枪在响，身体要跟着一顿一顿
   float recoil = sin(ph * 9.0) * 0.055;
@@ -213,27 +222,30 @@ vec3 boneAngles(int b, float ph, float state, float flash, float pose) {
   if (b == BONE_ARM_L) {
     float zombie = -1.05 + sin(ph * 3.0) * 0.45;
     float rifle  = -1.32 + recoil;
-    return vec3(mix(-sw * 0.42, mix(zombie, rifle, pose), state),
-                mix(0.0, -0.26, state * pose),
-                mix(0.10, mix(0.30, 0.16, pose), state));
+    // 啃食：手臂往下往里收，像抱着东西撕
+    float feed = -0.55 + chew * 0.12;
+    return vec3(mix(mix(-sw * 0.42, mix(zombie, rifle, pose), st), feed, eat),
+                mix(mix(0.0, -0.26, st * pose), 0.42, eat),
+                mix(mix(0.10, mix(0.30, 0.16, pose), st), 0.5, eat));
   }
   if (b == BONE_ARM_R) {
     float zombie = -1.05 + sin(ph * 3.0 + 1.7) * 0.45;
     float rifle  = -1.18 + recoil;
-    return vec3(mix( sw * 0.42, mix(zombie, rifle, pose), state),
-                mix(0.0, -0.34, state * pose),
-                mix(-0.10, mix(-0.30, -0.10, pose), state));
+    float feed = -0.55 - chew * 0.12;
+    return vec3(mix(mix( sw * 0.42, mix(zombie, rifle, pose), st), feed, eat),
+                mix(mix(0.0, -0.34, st * pose), -0.42, eat),
+                mix(mix(-0.10, mix(-0.30, -0.10, pose), st), -0.5, eat));
   }
-  if (b == BONE_FORE_L)  return vec3(-0.3 - max(0.0,  sw) * 0.32 - state * mix(0.35, 0.62, pose), 0.0, 0.0);
-  if (b == BONE_FORE_R)  return vec3(-0.3 - max(0.0, -sw) * 0.32 - state * mix(0.35, 0.30, pose), 0.0, 0.0);
-  // 躯干：走路时随步伐扭腰 + 侧倾，攻击时拧向出手方向
-  if (b == BONE_CHEST)   return vec3(sin(ph * 2.0) * 0.04 - hit * 0.22 - state * pose * 0.06,
-                                     -sw * mix(0.09, mix(0.20, 0.05, pose), state),
-                                     sw * 0.05);
-  // 脑袋反向补偿身体的扭动，视线才像一直盯着前方
-  if (b == BONE_HEAD)    return vec3(-sin(ph * 2.0) * 0.055 - hit * 0.16,
-                                     sw * 0.07 + hit * 0.18,
-                                     -sw * 0.04);
+  if (b == BONE_FORE_L)  return vec3(mix(-0.3 - max(0.0,  sw) * 0.32 - st * mix(0.35, 0.62, pose), -1.75 - chew * 0.18, eat), 0.0, 0.0);
+  if (b == BONE_FORE_R)  return vec3(mix(-0.3 - max(0.0, -sw) * 0.32 - st * mix(0.35, 0.30, pose), -1.75 + chew * 0.18, eat), 0.0, 0.0);
+  // 躯干：走路时随步伐扭腰 + 侧倾，攻击时拧向出手方向，啃食时整个弓下去
+  if (b == BONE_CHEST)   return vec3(mix(sin(ph * 2.0) * 0.04 - hit * 0.22 - st * pose * 0.06, 0.85 + chew * 0.07, eat),
+                                     mix(-sw * mix(0.09, mix(0.20, 0.05, pose), st), 0.0, eat),
+                                     mix(sw * 0.05, 0.0, eat));
+  // 脑袋反向补偿身体的扭动，视线才像一直盯着前方；啃食时压到最低并快速点头
+  if (b == BONE_HEAD)    return vec3(mix(-sin(ph * 2.0) * 0.055 - hit * 0.16, 0.55 + chew * 0.22, eat),
+                                     mix(sw * 0.07 + hit * 0.18, 0.0, eat),
+                                     mix(-sw * 0.04, 0.0, eat));
   return vec3(0.0);
 }
 

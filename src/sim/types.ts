@@ -79,6 +79,14 @@ export interface Enemy {
   leapToZ?: number;
   /** 跳跃者当前的离地高度，渲染层直接读它。 */
   airY?: number;
+  /**
+   * 进食倒计时。
+   *
+   * 咬中士兵的那一刻置为 EAT_TIME，之后逐帧递减；大于 0 时渲染层切进
+   * 「啃食」姿态（弓身、低头、双手往回扒、快频率的咀嚼点头）。
+   * 之前僵尸贴上来只是站着挥手，看不出它在干什么。
+   */
+  eating: number;
 }
 
 export interface Shell {
@@ -176,6 +184,7 @@ export type SimEventType =
   | 'spitterHit'        // 酸液落地
   | 'leaperJump'        // 跳跃者起跳
   | 'leaperLand'        // 跳跃者落进阵型
+  | 'bite'              // 僵尸咬中士兵（喷血 + 湿闷的撕咬声）
   | 'bomberBlast'       // 自爆尸在方阵里炸开
   | 'strikeCall'        // 呼叫空袭
   | 'strikeImpact'      // 空袭落弹

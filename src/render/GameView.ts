@@ -223,6 +223,11 @@ export class GameView {
   private readonly tracers = new Tracers();
   private readonly sparks = new Particles(900, true);
   private readonly smoke = new Particles(420, false);
+  /**
+   * 血。单独一套粒子，而且必须是**普通混合**——火花那套是加色的，
+   * 血用加色画出来是橙白色的火星，一点血的样子都没有。
+   */
+  private readonly blood = new Particles(700, false);
   /** 城市废墟里常驻的烟柱/余烬——和战斗特效用的 smoke 分开，不互相挤占配额。 */
   private readonly ambientSmoke = new Particles(220, false);
   private smokeColumns: { x: number; y: number; z: number; ember: boolean; next: number }[] = [];
@@ -372,7 +377,13 @@ export class GameView {
    */
   private buildSoldierBatch(q: BuildQuality): void {
     const soldierGeo = soldierGeometry(q, this.soldierWeaponTier);
-    const soldierMat = createCrowdMaterial({ roughness: 0.74, metalness: 0.1, soldierPose: true });
+    // 士兵单独给一点冷色自发光：五关的雾从暖褐到暗紫都有，纯反射光的话
+    // 队伍在远处会被雾洗成和路面一个颜色。这一点点底光不影响近处观感，
+    // 但保证了"我的人在哪"这件事在任何一关都读得出来。
+    const soldierMat = createCrowdMaterial({
+      roughness: 0.7, metalness: 0.12, soldierPose: true,
+      emissive: 0x0c1c2c,
+    });
     soldierMat.setPivots(geometryPivots(soldierGeo));
     this.soldierMatSet = soldierMat;
     this.soldiers = new CrowdBatch(soldierGeo, soldierMat.material, MAX_RENDERED_SOLDIERS, soldierMat.depthMaterial);
@@ -461,7 +472,7 @@ export class GameView {
     this.scene.add(this.pickupMesh);
 
     this.scene.add(
-      this.bars.mesh, this.tracers.mesh, this.sparks.mesh, this.smoke.mesh, this.gold.mesh,
+      this.bars.mesh, this.tracers.mesh, this.sparks.mesh, this.smoke.mesh, this.blood.mesh, this.gold.mesh,
       this.ring.mesh, this.lane.mesh, this.reticle.mesh, this.lightning.group, this.midRing.mesh,
       this.ambientSmoke.mesh, this.dragon.group,
       this.decals.mesh, this.waves.mesh, this.flashes.group, this.gibs.mesh, this.areaTg.mesh,
@@ -656,6 +667,7 @@ export class GameView {
     }
     this.sparks.update(dt);
     this.smoke.update(dt);
+    this.blood.update(dt);
     this.gold.update(dt);
     this.gibs.update(dt);
     this.lightning.update(dt);
@@ -756,7 +768,10 @@ export class GameView {
     // 僵尸朝 -z 走，几何体本身面朝 +z，所以转 180°
     const yaw = Math.PI + ((e.id % 7) - 3) * 0.045;
     // 贴到方阵跟前的会切成攻击姿态
+    // 三档姿态：走 → 挥手 → 啃食。咬中人的那一下会切到 2，
+    // 保持大半秒再回落，读起来是"扑上去啃一口、直起身、再扑"
     const attacking = e.alive && e.z - squadZ < 2.6 + e.scale * 0.6;
+    const state = e.alive && e.eating > 0 ? 2 : attacking ? 1 : 0;
     // 跳跃者滞空时抬到抛物线的高度上；其余怪 airY 恒为 0
     batch.add(
       e.x, e.airY ?? 0, e.z,
@@ -764,7 +779,7 @@ export class GameView {
       e.scale,
       e.phase,
       0,
-      attacking ? 1 : 0,
+      state,
       death,
       flashAmount(e),
       jitterTint(this.tints.get(e.kind)!, e.id, ENEMY_JITTER[e.kind]),
@@ -1111,12 +1126,29 @@ export class GameView {
           }
           break;
         }
-        case 'soldierDown': {
-          this.sparks.burst(ev.x!, ev.y!, ev.z!, {
-            count: 5, color: 0xe85252, color2: 0x5a0d0d, speed: [1.2, 3.6], size: [0.28, 0.5],
-            life: [0.2, 0.45], gravity: 8, drag: 1.6, stretch: 0.8,
+        case 'bite': {
+          // 咬中的一口血。喷得又快又碎，还在地上留一小摊——
+          // 僵尸贴到脸上这件事必须有代价感，不能只是血条在掉。
+          const big = ev.amount ?? 1;
+          this.blood.burst(ev.x!, ev.y!, ev.z!, {
+            count: Math.round(9 + big * 5), color: 0xd42a2a, color2: 0x5c0808,
+            speed: [3 + big, 8 + big * 2.6], size: [0.26 + big * 0.08, 0.55 + big * 0.18],
+            life: [0.28, 0.6], gravity: 13, drag: 1.1, stretch: 2.4,
           });
-          this.decals.add('blood', ev.x!, ev.z!, 1.7, 0.7);
+          // 不是每一口都留印子——几十只僵尸同时啃的时候，全留会把整条路涂红
+          if (this.rng.next() < 0.6) this.decals.add('blood', ev.x!, ev.z!, 0.95 + big * 0.5, 0.55);
+          break;
+        }
+        case 'soldierDown': {
+          this.blood.burst(ev.x!, ev.y! + 0.5, ev.z!, {
+            count: 26, color: 0xc42227, color2: 0x3d0505, speed: [2.5, 9], size: [0.2, 0.5],
+            life: [0.3, 0.7], gravity: 13, drag: 1.2, stretch: 2.4,
+          });
+          this.blood.burst(ev.x!, ev.y! + 0.7, ev.z!, {
+            count: 6, color: 0x7d1416, color2: 0x2c0404, speed: [0.5, 2], size: [0.45, 0.85],
+            life: [0.35, 0.7], grow: 1.4, drag: 2.6, fadeIn: 0.05,
+          });
+          this.decals.add('blood', ev.x!, ev.z!, 2.4, 0.85);
           break;
         }
         case 'blockHit': {

@@ -165,3 +165,34 @@ describe('怪物种类', () => {
     expect(new Set(sigs).size, `有怪物共用同一份数值：${sigs.join(' ')}`).toBe(sigs.length);
   });
 });
+
+describe('啃食', () => {
+  it('咬中人的那一下会切进啃食姿态并喷血', () => {
+    // 僵尸贴上来不能只是站着挥手——玩家要看得出它在**吃人**，
+    // 而且每一口都得有血。这两件事一个走 eating 计时器（渲染层的姿态），
+    // 一个走 bite 事件（血 + 音效）。
+    const squad = makeSquad(40);
+    const pool = new EnemyPool(new Rng(9));
+    const e = pool.spawn('walker', squad.x, squad.z + 1.2);
+    e.laneX = e.x;
+    e.attackCd = 0;
+    const evs = run(pool, squad, 1);
+    expect(evs.some((v) => v.type === 'bite'), '咬中了却没有 bite 事件').toBe(true);
+    expect(e.eating, '咬完之后应当保持一段啃食姿态').toBeGreaterThan(0);
+  });
+
+  it('啃食姿态会自己退回去，不会一直趴着', () => {
+    const squad = makeSquad(40);
+    const pool = new EnemyPool(new Rng(9));
+    const e = pool.spawn('walker', squad.x, squad.z + 1.2);
+    e.laneX = e.x;
+    e.attackCd = 0;
+    run(pool, squad, 0.2);
+    const peak = e.eating;
+    expect(peak).toBeGreaterThan(0);
+    // 把攻击冷却推远，看姿态会不会自己归零
+    e.attackCd = 99;
+    run(pool, squad, 1.2);
+    expect(e.eating, '啃食姿态没有退回去').toBe(0);
+  });
+});

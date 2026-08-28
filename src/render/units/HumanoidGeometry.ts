@@ -1236,14 +1236,24 @@ export function gearForWeapon(tier: number): 0 | 1 | 2 {
 }
 
 /**
- * 三档配色。升级除了加甲还要换色——远处看不清几何细节的时候，
- * 颜色是第一层"我的部队变强了"的信号：
- * 民兵的土黄 → 制式的军蓝 → 重装的深钢青。
+ * 三档配色。
+ *
+ * 原来是土黄 → 军蓝 → 深钢青，"很有末日味"，但末日本身就是土黄和铁灰的——
+ * 士兵整队糊在路面和沙尘里，玩家在竖屏里根本分不出自己的人在哪。
+ *
+ * 现在整条线搬到**冷蓝**上，并且越升越亮：路面、僵尸、废墟全是暖褐/橄榄/
+ * 铁灰，冷蓝是这张画面里唯一没有的色相，隔多远都跳得出来。整套只用蓝的
+ * 深浅去分结构（深蓝的裤子/护具、中蓝的衣身、浅蓝的盔具），不掺暖色——
+ * 试过给盔具配琥珀色，远看像顶了一头金发，反而把脸读乱了。
+ * 升级读的是"越来越亮、越来越青"，不是"越来越暗"。
  */
 const GEAR_PALETTES = [
-  { skin: 0xd9a684, cloth: 0x6b6244, dark: 0x3d3a2b, accent: 0x55503a, bone: 0xf0e6d8 },
-  { skin: 0xd9a684, cloth: 0x2f4d8f, dark: 0x1d2f5c, accent: 0x24407a, bone: 0xf0e6d8 },
-  { skin: 0xd9a684, cloth: 0x24333f, dark: 0x161f27, accent: 0x3c6070, bone: 0xf0e6d8 },
+  // 民兵：中蓝工装 + 浅蓝盔具
+  { skin: 0xe8bb94, cloth: 0x2f6fb8, dark: 0x18345e, accent: 0x5fa8e8, bone: 0xf5efe2 },
+  // 制式：更亮更饱和的战术蓝
+  { skin: 0xe8bb94, cloth: 0x2f8ae8, dark: 0x1a4380, accent: 0x7cc4ff, bone: 0xf5efe2 },
+  // 重装：青蓝合金，全场最亮的一档
+  { skin: 0xe8bb94, cloth: 0x35bcd8, dark: 0x11566c, accent: 0x8ef0ff, bone: 0xf5efe2 },
 ] as const;
 
 export function soldierGeometry(q: BuildQuality, weaponTier: number): THREE.BufferGeometry {

@@ -5,6 +5,13 @@ import type { Squad } from './Squad';
 import { LANE_ORDER, LANE_WIDTH, laneCenterX } from './lanes';
 import type { BlockObstacle, Enemy, SimEvent } from './types';
 
+/**
+ * 咬中之后保持啃食姿态多久。
+ * 略短于攻击间隔（0.85 秒）：前排僵尸因此绝大部分时间都在啃，中间留一小段
+ * 直起身的空档，读起来是「扑上去啃、直起身、再扑」，而不是一直趴着不动。
+ */
+const EAT_TIME = 0.74;
+
 /** 尸体倒地动画时长。 */
 const DYING_TIME = 0.55;
 /** 刷怪默认提前量：留出几秒的射击窗口，尸潮才是"压过来"而不是"贴脸出现"。 */
@@ -108,6 +115,7 @@ export class EnemyPool {
       abilityCd: this.rng.range(0.2, 0.9),
       leapT: 0,
       airY: 0,
+      eating: 0,
     };
     this.list.push(e);
     return e;
@@ -195,6 +203,7 @@ export class EnemyPool {
         continue;
       }
       if (e.flash > 0) e.flash = Math.max(0, e.flash - dt);
+      if (e.eating > 0) e.eating = Math.max(0, e.eating - dt);
 
       // 嚎叫者光环
       e.speedMul = 1;
@@ -439,11 +448,14 @@ export class EnemyPool {
 
       const st = ENEMY_STATS[e.kind];
       const dmg = st.damage * e.damageMul * this.damageScale;
+      // 咬下去这一口要看得见：切进啃食姿态，并在被咬的人身上喷一蓬血
+      e.eating = EAT_TIME;
       for (let s = 0; s < st.sweep; s++) {
         const target = squad.pickFrontTarget(this.rng.next());
         if (!target) break;
         target.hp -= dmg;
         target.flash = 0.12;
+        out.push({ type: 'bite', x: target.x, y: 1.05, z: target.z, amount: e.scale });
         if (target.hp <= 0) {
           target.alive = false;
           squad.markDirty();
