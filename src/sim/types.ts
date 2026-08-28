@@ -185,6 +185,8 @@ export type SimEventType =
   | 'leaperJump'        // 跳跃者起跳
   | 'leaperLand'        // 跳跃者落进阵型
   | 'bite'              // 僵尸咬中士兵（喷血 + 湿闷的撕咬声）
+  | 'impaled'           // 士兵被墙上的倒刺串死
+  | 'blockSmashed'      // 方阵硬撞穿了一堵没打掉的墙（没有奖励）
   | 'bomberBlast'       // 自爆尸在方阵里炸开
   | 'strikeCall'        // 呼叫空袭
   | 'strikeImpact'      // 空袭落弹

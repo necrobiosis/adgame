@@ -385,6 +385,8 @@ export class Game {
         // 酸液抛射：飞行时长就是预警时长，听觉上和地上的圈同步
         case 'spitterFire': this.audio.telegraph(SPITTER.telegraph, 'shock', pan(ev.tx)); break;
         case 'bite': this.audio.bite(pan(ev.x)); break;
+        case 'impaled': this.audio.bite(pan(ev.x)); break;
+        case 'blockSmashed': this.audio.explosion(pan(ev.x)); break;
         case 'spitterHit': this.audio.acidSplash(pan(ev.x)); break;
         case 'bomberBlast': this.audio.explosion(pan(ev.x)); break;
         case 'leaperJump': this.audio.leap(pan(ev.x)); break;

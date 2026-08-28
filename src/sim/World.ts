@@ -33,9 +33,6 @@ const ENDLESS_RAMP = 220;
 /** 无尽模式：血量缩放的距离基准。越大爬得越慢。 */
 const ENDLESS_HP_RAMP = 500;
 
-/** 方阵贴到墙前多少米开始被拖慢。 */
-const BLOCK_STOP_GAP = 3.2;
-
 export interface RunOptions {
   levelId: number;
   upgrades: Readonly<Record<UpgradeId, number>>;
@@ -114,6 +111,9 @@ export class World {
   private readonly goldMul: number;
   private readonly strikeChargeMul: number;
   private readonly strikeRadiusMul: number;
+
+  /** 倒刺攒下的不满一人的伤亡零头。 */
+  private spikeDebt = 0;
 
   private bossTriggered = false;
   private bossArenaTargetZ = 0;
@@ -325,19 +325,23 @@ export class World {
     // 你走进那一排就是在打它，走别的排就是放弃它。位置本身就是意图。
     this.squad.x = x;
 
-    // ── 前进 ────────────────────────────────────────────────
-    // 站在墙那一排上就会被墙拖住——不是钉死，是慢到爬。
-    //
-    // "错过就没有奖励"要成立，走过去就必须付出真实的代价，否则这个选择只是
-    // 一道"顺路白拿"的判分题。代价就是时间：这段时间尸潮一直在往前压，
-    // 你的火力也全砸在墙上。随时可以打方向盘退出这一排，立刻恢复速度——
-    // 是走是留，全程都在玩家手里。
+    // ── 撞墙：拿命填，不减速 ────────────────────────────────
+    // 墙正面焊满倒刺。走到它那一排上又没能在撞上之前打穿，前排就直接被串死，
+    // 方阵不减速地撞穿过去——墙碎了，但这条路是拿人命换的，也拿不到奖励。
+    // 以前是"速度降到 16% 一点点蹭过去"，干等 + 整队人从墙里穿模，两样最差的
+    // 手感全占了。
     const blk = this.activeBlock;
-    let advanceFactor = 1;
-    if (blk && blk.alive && this.squad.z >= blk.z - BLOCK_STOP_GAP
-        && laneAtX(this.squad.x) === blk.lane) {
-      advanceFactor = BLOCK.squeezeFactor;
+    if (blk && blk.alive && laneAtX(this.squad.x) === blk.lane
+        && this.squad.z > blk.z - BLOCK.spikes.reach) {
+      this.impale(dt, blk, out);
+      if (this.squad.z >= blk.z + 0.6) {
+        blk.alive = false;
+        blk.flash = 0.2;
+        out.push({ type: 'blockSmashed', x: (blk.x0 + blk.x1) / 2, y: 1.6, z: blk.z });
+      }
     }
+
+    const advanceFactor = 1;
     let canAdvance = true;
     if (this.bossTriggered && this.squad.z >= this.bossArenaTargetZ) canAdvance = false;
     if (canAdvance) {
@@ -414,6 +418,26 @@ export class World {
       this.gold += this.level.clearGold;
       this.stats.goldEarned += this.level.clearGold;
       out.push({ type: 'win', amount: this.level.clearGold });
+    }
+  }
+
+  /**
+   * 被墙上的倒刺串死。
+   *
+   * 按兵力比例算每秒死多少人，再压一个上限——比例保证小队伍撞墙是重伤、
+   * 大队伍也不是白撞，上限保证满编方阵不会一头撞没。攒不满一个人的部分
+   * 记在 spikeDebt 里，低帧率下不会因为取整而白赚。
+   */
+  private impale(dt: number, blk: BlockObstacle, out: SimEvent[]): void {
+    const S = BLOCK.spikes;
+    this.spikeDebt += Math.min(S.maxRate, this.squad.aliveCount * S.rateShare) * dt;
+    while (this.spikeDebt >= 1) {
+      this.spikeDebt -= 1;
+      const u = this.squad.pickFrontTarget(this.rng.next());
+      if (!u) break;
+      u.alive = false;
+      this.squad.markDirty();
+      out.push({ type: 'impaled', x: u.x, y: 1.1, z: blk.z - 0.9 });
     }
   }
 

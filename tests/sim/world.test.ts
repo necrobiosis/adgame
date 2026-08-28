@@ -281,13 +281,16 @@ describe('奖励墙', () => {
     const wantX = laneCenterX(wall.lane);
     const dt = 1 / 60;
     let t = 0;
+    let shot = false;
     while (w.phase === 'running' && t < 120 && w.squad.z < wall.z + 12) {
       w.steer = Math.abs(wantX - w.squad.x) > 0.3 ? Math.sign(wantX - w.squad.x) : 0;
       w.step(dt);
-      w.drainEvents();
+      for (const ev of w.drainEvents()) if (ev.type === 'blockDestroyed') shot = true;
       t += dt;
     }
-    expect(wall.alive, `满配走进墙那一排，${wall.maxHp} 血的墙也没打穿`).toBe(false);
+    // 注意这里要的是"被火力打掉"（blockDestroyed），不是"被撞碎"
+    // （blockSmashed）。撞碎不给奖励，也拿命填——它不算"打得穿"。
+    expect(shot, `满配走进墙那一排，${wall.maxHp} 血的墙也没能用火力打穿`).toBe(true);
   });
 });
 
@@ -328,5 +331,55 @@ describe('射程无限 · 穿透', () => {
     // 八级武器的"外观档"要真的拉开，不能全挤在一两档上
     expect(new Set(tiers.map((t) => t.beam)).size).toBeGreaterThanOrEqual(4);
     expect(Math.max(...tiers.map((t) => t.beam))).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('墙上的倒刺', () => {
+  it('撞上没打掉的墙会被串死一片，但方阵不减速也不卡住', () => {
+    // 以前撞墙是"速度降到 16% 一点点蹭过去"，干等 + 整队人从墙里穿模。
+    // 现在墙正面焊满倒刺：撞上去拿命填，方阵不减速地撞穿，墙碎、没有奖励。
+    const w = new World({ levelId: 5, upgrades: mkUpgrades({ squad: 12, armor: 6 }), seed: 3 });
+    // 挑一堵这支队伍绝对打不穿的厚墙
+    const wall = w.blocks.reduce((a, b) => (b.maxHp > a.maxHp ? b : a));
+    const wantX = laneCenterX(wall.lane);
+    const dt = 1 / 60;
+    let t = 0;
+    let impaled = 0;
+    let smashed = false;
+    let crawl = Infinity;
+    // 先跑到墙跟前，量"贴着墙那一段"的推进速度
+    while (w.phase === 'running' && t < 200 && w.squad.z < wall.z + 8) {
+      w.steer = Math.abs(wantX - w.squad.x) > 0.3 ? Math.sign(wantX - w.squad.x) : 0;
+      const z0 = w.squad.z;
+      w.step(dt);
+      for (const ev of w.drainEvents()) {
+        if (ev.type === 'impaled') impaled++;
+        if (ev.type === 'blockSmashed') smashed = true;
+      }
+      if (Math.abs(w.squad.z - wall.z) < 3) crawl = Math.min(crawl, (w.squad.z - z0) / dt);
+      t += dt;
+    }
+    expect(impaled, '撞上倒刺却一个人都没死').toBeGreaterThan(0);
+    expect(smashed, '硬撞过去之后墙应当碎掉，不能让人从墙里穿过去').toBe(true);
+    expect(wall.alive).toBe(false);
+    // 贴着墙的那一段仍然在正常速度推进（尸潮的拖拽另算，这里没怪）
+    expect(crawl, '撞墙时被拖慢了——这一版不该再有"蹭过去"的手感').toBeGreaterThan(4);
+  });
+
+  it('走别的排既不会被刺，也不会把墙撞碎', () => {
+    const w = new World({ levelId: 5, upgrades: mkUpgrades({ squad: 12, armor: 6 }), seed: 3 });
+    const wall = w.blocks.reduce((a, b) => (b.maxHp > a.maxHp ? b : a));
+    const away = laneCenterX(wall.lane) > 0 ? -ROAD_HALF + 2 : ROAD_HALF - 2;
+    const dt = 1 / 60;
+    let t = 0;
+    let impaled = 0;
+    while (w.phase === 'running' && t < 200 && w.squad.z < wall.z + 8) {
+      w.steer = Math.abs(away - w.squad.x) > 0.3 ? Math.sign(away - w.squad.x) : 0;
+      w.step(dt);
+      for (const ev of w.drainEvents()) if (ev.type === 'impaled') impaled++;
+      t += dt;
+    }
+    expect(impaled, '走别的排也被刺到了').toBe(0);
+    expect(wall.alive, '走别的排却把墙撞碎了').toBe(true);
   });
 });

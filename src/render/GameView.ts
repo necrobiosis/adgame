@@ -1126,6 +1126,32 @@ export class GameView {
           }
           break;
         }
+        case 'impaled': {
+          // 被倒刺串死：一大蓬血朝镜头喷，加一块地面血迹和一声金属穿刺。
+          // 撞墙的代价必须看得见——这是玩家唯一一次"自己走上去送人头"。
+          this.blood.burst(ev.x!, ev.y!, ev.z!, {
+            count: 22, color: 0xd42a2a, color2: 0x4d0606,
+            speed: [3, 10], size: [0.24, 0.6], life: [0.3, 0.65],
+            gravity: 12, drag: 1.1, stretch: 2.6,
+          });
+          this.sparks.burst(ev.x!, ev.y! + 0.3, ev.z!, {
+            count: 4, color: 0xffe0a0, speed: [2, 6], size: [0.2, 0.4], life: [0.08, 0.16], grow: -1.4,
+          });
+          this.decals.add('blood', ev.x!, ev.z! + 0.6, 1.6, 0.7);
+          break;
+        }
+        case 'blockSmashed': {
+          // 硬撞穿：碎块 + 一圈冲击波 + 一次强震。没有金币飘字——
+          // 这条路是拿命换的，不是打下来的
+          this.gibs.burst(ev.x!, 1.4, ev.z!, 14);
+          this.waves.spawn(ev.x!, ev.z!, 9, 3, 0xc9d2dc, 0.9, 0.5);
+          this.smoke.burst(ev.x!, 1.6, ev.z!, {
+            count: 8, color: 0x9aa0a8, color2: 0x40454b, speed: [1.5, 5], size: [0.9, 1.8],
+            life: [0.5, 1.0], grow: 2.2, drag: 2, lift: 1.2, fadeIn: 0.1,
+          });
+          this.softPunch(0.14);
+          break;
+        }
         case 'bite': {
           // 咬中的一口血。喷得又快又碎，还在地上留一小摊——
           // 僵尸贴到脸上这件事必须有代价感，不能只是血条在掉。

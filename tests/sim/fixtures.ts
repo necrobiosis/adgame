@@ -123,9 +123,15 @@ function steerTarget(w: World): number {
       >= scoreLane(gate.right.gate, gate.right.wave, n, w.gold) ? 'left' : 'right';
     return laneCenterX(side);
   }
-  // 够得着的奖励墙：兵力够厚才值得进去挨那一段慢速
+  // 够得着的奖励墙：只有**估计打得穿**才值得走过去。
+  // 墙上焊着倒刺，撞上去是拿命填的——打不穿还硬闯，等于白扔一片人。
   const wall = w.blocks.find((b) => b.alive && b.bonus > 0 && b.z > w.squad.z && b.z - w.squad.z < 46);
-  if (wall && w.squad.soldierCount >= 120) return laneCenterX(wall.lane);
+  if (wall) {
+    const wp = w.squad.weapon;
+    // 进入射程到撞上大约两秒的开火窗口，按"有效输出约占理论值三成"估
+    const canBreak = wall.hp < w.squad.soldierCount * wp.damage * wp.fireRate * 0.7;
+    if (canBreak) return laneCenterX(wall.lane);
+  }
   // 平时：站到怪最多的那一排上，火力才有地方去
   const count: Record<Lane, number> = { left: 0, mid: 0, right: 0 };
   for (const e of w.enemies.list) {
