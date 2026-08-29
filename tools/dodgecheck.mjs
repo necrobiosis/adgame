@@ -12,7 +12,7 @@ const page = await browser.newPage({ viewport: { width: 460, height: 900 } });
 const errs = [];
 page.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text().slice(0, 300)); });
-await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
+await page.goto('http://127.0.0.1:5173/', { waitUntil: 'networkidle' });
 await page.waitForTimeout(1200);
 await page.evaluate(() => localStorage.setItem('adgame.save.v1',
   '{"version":1,"gold":99999,"unlockedLevel":5,"upgrades":{"squad":12,"damage":8,"fireRate":8,"cannon":4,"armor":8,"weapon":4,"slots":1},"loadout":["squad","damage","fireRate","weapon","cannon"],"bestTime":{},"muted":true}'));

@@ -1,4 +1,4 @@
-import { BIG_SPAWN_AHEAD, BOMBER, ENEMY_STATS, FIRE_CORRIDOR_PAD, LANE_LOCK_RANGE, LEAPER, MELEE, ROAD_HALF, SCREAMER_AURA, SIZE_JITTER, SOLDIER, SPITTER, type EnemyKind } from '../config/balance';
+import { BIG_SPAWN_AHEAD, BOMBER, ENEMY_STATS, LANE_LOCK_RANGE, LEAPER, MELEE, ROAD_HALF, SCREAMER_AURA, SIZE_JITTER, SOLDIER, SPITTER, type EnemyKind } from '../config/balance';
 import type { Rng } from '../core/Rng';
 import type { WaveSpec } from '../config/levels';
 import type { Squad } from './Squad';
@@ -543,14 +543,15 @@ export class EnemyPool {
 }
 
 /**
- * 步枪的火线走廊半宽 —— 正好是"你脚下那一排"。
+ * 步枪的火线走廊半宽 —— 就是"你脚下那一排"，一米不多一米不少。
  *
- * 一开始这里写的是"方阵半宽 + 余量"，结果满编方阵只有 6 米宽、一排却有
- * 7.3 米，站在排中央都够不到排边上的怪，和玩家看到的画面对不上。走廊至少
- * 要盖住整条车道：站在这一排，这一排的东西就都打得到，隔壁排一个都够不着。
+ * 一开始写的是"方阵半宽 + 余量"，两头都不对：满编方阵只有 6 米宽而一排有
+ * 7.3 米，站在排中央都够不到排边上的怪；后来方阵能铺到 7 列，又反过来
+ * 越界打到隔壁排去了。直接锁死成车道半宽，规则才和玩家看到的那条亮带
+ * 完全一致——站在这一排，这一排的东西都打得到，隔壁排一个都够不着。
  */
-export function fireCorridor(squad: Squad): number {
-  return Math.max(squad.halfWidth + FIRE_CORRIDOR_PAD, LANE_WIDTH / 2);
+export function fireCorridor(_squad: Squad): number {
+  return LANE_WIDTH / 2;
 }
 
 function clamp(v: number, lo: number, hi: number): number {

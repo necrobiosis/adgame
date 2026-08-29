@@ -1,3 +1,4 @@
+import { LANE_WIDTH } from './lanes';
 import {
   BUFF_CAP,
   FORMATION_MAX_COLS,
@@ -10,7 +11,9 @@ import {
   WEAPON_TIERS,
   CANNON,
   type WeaponTier,
-} from '../config/balance';
+  FORMATION_MAX_ROWS,
+  SLOT_MIN_SCALE,
+  RANK_FIRE,} from '../config/balance';
 import type { Rng } from '../core/Rng';
 import type { Unit } from './types';
 
@@ -43,6 +46,7 @@ export class Squad {
   cols = 1;
   rows = 1;
   spacingX = SLOT_SPACING_X;
+  spacingZ = SLOT_SPACING_Z;
 
   private nextId = 1;
   private dirty = true;
@@ -89,7 +93,7 @@ export class Squad {
 
   /** 方阵纵深。 */
   get depth(): number {
-    return this.rows * SLOT_SPACING_Z;
+    return this.rows * this.spacingZ;
   }
 
   // ── 编制变更 ────────────────────────────────────────────────
@@ -229,11 +233,23 @@ export class Squad {
     // 人越多方阵越宽（但不超出路面），保持一个紧凑的方块而不是长队。
     // 上限就是 FORMATION_MAX_COLS。以前这里写的是 max(FORMATION_MAX_COLS, 22)，
     // 等于把配置项架空了，方阵能一路铺到 22 列、宽过整条路。
-    const cols = clampInt(Math.ceil(Math.sqrt(n * 2.2)), 1, FORMATION_MAX_COLS);
-    const spacing = Math.min(SLOT_SPACING_X, (ROAD_HALF * 2 - 3) / Math.max(1, cols));
+    // ── 队形 ──────────────────────────────────────────────
+    // 目标是一个**宽度锁死在一条车道、纵深封顶**的方块。人多了不往后拉长，
+    // 而是在同一块地方站得更挤（见 FORMATION_MAX_ROWS 的注释）。
+    const maxW = Math.min(LANE_WIDTH - 0.5, ROAD_HALF * 2 - 3);
+    // 这个方块按正常间距能站下多少人
+    const roomy = Math.max(1, Math.floor(maxW / SLOT_SPACING_X)) * FORMATION_MAX_ROWS;
+    // 超编的部分靠缩间距吸收；再挤也有下限，人和人不能重叠
+    const squeeze = n > roomy ? Math.max(SLOT_MIN_SCALE, Math.sqrt(roomy / n)) : 1;
+    const spacing = SLOT_SPACING_X * squeeze;
+    const spacingZ = SLOT_SPACING_Z * squeeze;
+    // 人少的时候不必铺满整条车道——小队伍摆成小方块才好看
+    const wide = Math.max(1, Math.floor(maxW / spacing));
+    const cols = squeeze < 1 ? wide : clampInt(Math.ceil(Math.sqrt(n * 2.2)), 1, Math.min(wide, FORMATION_MAX_COLS));
     this.cols = cols;
     this.rows = Math.ceil(n / cols);
     this.spacingX = spacing;
+    this.spacingZ = spacingZ;
 
     for (let i = 0; i < n; i++) {
       const u = this.units[i]!;
@@ -242,9 +258,12 @@ export class Squad {
       const inRow = Math.min(cols, n - row * cols);
       const rowWidth = (inRow - 1) * spacing;
       u.row = row;
+      // 火力衰减看的是"前面挡着多少人"，跟摆成几列无关——固定参考宽度换算，
+      // 压密之后全队 DPS 才不会凭空暴涨
+      u.rank = Math.floor(i / RANK_FIRE.refCols);
       u.col = col;
       u.x = this.x - rowWidth / 2 + col * spacing;
-      u.z = this.z - row * SLOT_SPACING_Z;
+      u.z = this.z - row * spacingZ;
     }
   }
 
@@ -273,6 +292,7 @@ export class Squad {
       alive: true,
       isCannon,
       cooldown: this.rng.next() * 0.4,
+      rank: 0,
       row: 0,
       col: 0,
       flash: 0,

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ENDLESS_ID } from '../../src/config/levels';
 import { World } from '../../src/sim/World';
-import { AIRSTRIKE, BUFF_CAP, ROAD_HALF, SOLDIER, WEAPON_TIERS, rangeFalloff, type UpgradeId } from '../../src/config/balance';
-import { LANE_SIGN, laneBounds, laneCenterX } from '../../src/sim/lanes';
+import { AIRSTRIKE, BOSS, BUFF_CAP, FORMATION_MAX_ROWS, ROAD_HALF, SLOT_SPACING_Z, SOLDIER, WEAPON_TIERS, rangeFalloff, type UpgradeId } from '../../src/config/balance';
+import { rankFireMul } from '../../src/sim/Combat';
+import { LANE_SIGN, LANE_WIDTH, laneBounds, laneCenterX } from '../../src/sim/lanes';
 import { LEVELS_MAX_UPGRADES, NO_UPGRADES, upgrades as mkUpgrades } from './fixtures';
 
 
@@ -501,5 +502,66 @@ describe('空袭：一局几发', () => {
     }
     expect(impacts, '弹幕该有的发数没落全').toBe(AIRSTRIKE.bombs);
     expect(w.strikeZone, '炸完了预警区还挂在地上').toBeNull();
+  });
+});
+
+describe('人多不再等于无敌', () => {
+  /** 数一下以方阵中心为圆心、半径 r 的圆里站了多少人。 */
+  function inBlast(w: World, r: number): number {
+    let n = 0;
+    for (const u of w.squad.units) {
+      if (!u.alive) continue;
+      const dx = u.x - w.squad.x;
+      const dz = u.z - w.squad.z;
+      if (dx * dx + dz * dz <= r * r) n++;
+    }
+    return n;
+  }
+
+  it('方阵纵深封顶：人再多也不会拉成一条长队', () => {
+    // 以前列数封顶 5、排数不封顶，三百人就是一条七十八米长的纵队——
+    // 只有最前三排够得着被咬，后面全是碰不到的血库。
+    const w = new World({ levelId: 1, upgrades: NO_UPGRADES, seed: 3 });
+    w.squad.addSoldiers(400);
+    w.squad.layout();
+    // 不封顶的话四百人排成 5 列 = 104 米长的纵队；封顶之后应当压在
+    // 目标纵深的一点几倍以内（挤到下限之后还是会略微超出一点）
+    expect(w.squad.depth, `四百人的方阵纵深 ${w.squad.depth.toFixed(0)} 米，还是一条长队`)
+      .toBeLessThan(FORMATION_MAX_ROWS * SLOT_SPACING_Z * 1.35);
+    // 而且宽度要真的铺满一条车道，不是缩成一条细线
+    expect(w.squad.halfWidth * 2).toBeGreaterThan(LANE_WIDTH * 0.8);
+    // 而且要真的挤起来，不是靠砍人数
+    expect(w.squad.soldierCount).toBeGreaterThan(380);
+  });
+
+  it('AoE 杀的是比例不是固定人数：队伍越大，一发炸到的人越多', () => {
+    // 这是"堆兵力就无敌"的根：AoE 覆盖固定几排的话，杀的人数和队伍大小无关，
+    // 三百人的队伍挨一发践踏和六十人的队伍掉一样多的人。
+    const small = new World({ levelId: 1, upgrades: NO_UPGRADES, seed: 3 });
+    small.squad.addSoldiers(60 - small.squad.soldierCount);
+    small.squad.layout();
+    const big = new World({ levelId: 1, upgrades: NO_UPGRADES, seed: 3 });
+    big.squad.addSoldiers(360 - big.squad.soldierCount);
+    big.squad.layout();
+
+    const R = BOSS.slam.radius;
+    const hitSmall = inBlast(small, R);
+    const hitBig = inBlast(big, R);
+    expect(hitBig, `六十人炸到 ${hitSmall}，三百六十人只炸到 ${hitBig}`)
+      .toBeGreaterThan(hitSmall * 1.8);
+  });
+
+  it('压密不会让全队火力凭空暴涨', () => {
+    // 衰减看的是"前面挡着多少人"，跟摆成几列无关。用 row 算的话，
+    // 一压密所有人都挤进前排，DPS 会白涨一大截。
+    const w = new World({ levelId: 1, upgrades: NO_UPGRADES, seed: 3 });
+    w.squad.addSoldiers(400);
+    w.squad.layout();
+    let total = 0;
+    for (const u of w.squad.units) if (u.alive) total += rankFireMul(u.rank);
+    // 400 人按参考宽度 5 列算 = 80 排，衰减到下限之后每人 0.3——
+    // 有效火力应当远低于人数，和压密之前是同一条曲线
+    expect(total).toBeLessThan(w.squad.soldierCount * 0.55);
+    expect(total).toBeGreaterThan(w.squad.soldierCount * 0.25);
   });
 });

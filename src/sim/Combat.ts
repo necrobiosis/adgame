@@ -92,7 +92,7 @@ export class Combat {
 
       if (u.cooldown > 0) continue;
 
-      const rankMul = rankFireMul(u.row);
+      const rankMul = rankFireMul(u.rank);
       const useBlock = blockTargetable && (idx % 100) / 100 < blockShare;
       if (useBlock && block) {
         u.cooldown = interval;

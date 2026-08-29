@@ -18,6 +18,13 @@ export interface Unit {
   /** 阵型槽位（行、列），渲染层用来做整齐的行进动画。 */
   row: number;
   col: number;
+  /**
+   * 火力衰减用的"名次"——前面挡着多少人，换算成排。
+   *
+   * 和 row 分开是因为 row 会随队形压密而变（人多了列数变多、排数变少），
+   * 直接拿 row 算衰减的话，一压密全队 DPS 就凭空暴涨。
+   */
+  rank: number;
   /** 受击闪白剩余秒数。 */
   flash: number;
 }
