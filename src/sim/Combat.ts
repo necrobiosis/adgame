@@ -26,6 +26,8 @@ export class Combat {
     squad: Squad,
     pool: EnemyPool,
     block: BlockObstacle | null,
+    /** 吊在正前方的军械门。它不在路上，所以不吃"必须凑近才打得动"那条限制。 */
+    armory: BlockObstacle | null,
     out: SimEvent[],
   ): number {
     let goldEarned = 0;
@@ -45,13 +47,18 @@ export class Combat {
     pool.forwardTargets(squad, CANNON.range, 40, this.cannonPool, CANNON.corridor);
     const cannonTargets = this.cannonPool;
 
-    // 方块是否挡住去路，且在射程内
-    const blockTargetable =
+    // 挡路的方块：装甲厚，必须凑到跟前才打得动
+    const wallTargetable =
       block !== null &&
       block.alive &&
       block.z > squad.z - 2 &&
       block.z - squad.z < BLOCK.engageRange &&
       obstructs(block, squad);
+    // 军械门：永远吊在前方三十几米，凑不近也不用凑——射程本来就是无限的，
+    // 唯一的条件是**你得站在它那一排**。这才是"有空就去啃两口"成立的前提。
+    const armoryTargetable = armory !== null && armory.alive && obstructs(armory, squad);
+    const wallTarget = wallTargetable ? block : armoryTargetable ? armory : null;
+    const blockTargetable = wallTarget !== null;
 
     // 有威胁逼近时留一部分火力回防
     let closeThreats = 0;
@@ -70,7 +77,7 @@ export class Combat {
 
       if (u.isCannon) {
         if (u.cooldown > 0) continue;
-        const aim = pickCannonAim(cannonTargets, squad, blockTargetable ? block : null);
+        const aim = pickCannonAim(cannonTargets, squad, wallTarget);
         if (!aim) continue;
         u.cooldown = 1 / Math.max(0.05, CANNON.fireRate * squad.fireRateMul);
         const dist = Math.hypot(aim.x - u.x, aim.z - u.z);
@@ -94,24 +101,24 @@ export class Combat {
 
       const rankMul = rankFireMul(u.rank);
       const useBlock = blockTargetable && (idx % 100) / 100 < blockShare;
-      if (useBlock && block) {
+      if (useBlock && wallTarget) {
         u.cooldown = interval;
-        const dealt = Math.min(block.hp, dmg * weapon.pellets * rankMul);
-        block.hp -= dealt;
-        block.flash = 0.08;
+        const dealt = Math.min(wallTarget.hp, dmg * weapon.pellets * rankMul);
+        wallTarget.hp -= dealt;
+        wallTarget.flash = 0.08;
         out.push({
           type: 'shot',
           x: u.x, y: MUZZLE_Y, z: u.z,
-          tx: clamp(u.x, block.x0, block.x1), ty: 1.6, tz: block.z,
+          tx: clamp(u.x, wallTarget.x0, wallTarget.x1), ty: 1.6, tz: wallTarget.z,
           color: weapon.tracer,
         });
-        if (block.hp <= 0 && block.alive) {
-          block.alive = false;
-          const gold = Math.round((block.maxHp / 100) * BLOCK.goldPerHundredHp) + block.bonus;
+        if (wallTarget.hp <= 0 && wallTarget.alive) {
+          wallTarget.alive = false;
+          const gold = Math.round((wallTarget.maxHp / 100) * BLOCK.goldPerHundredHp) + wallTarget.bonus;
           goldEarned += gold;
-          out.push({ type: 'blockDestroyed', x: (block.x0 + block.x1) / 2, y: 1.6, z: block.z, amount: gold });
+          out.push({ type: 'blockDestroyed', x: (wallTarget.x0 + wallTarget.x1) / 2, y: 1.6, z: wallTarget.z, amount: gold });
         } else {
-          out.push({ type: 'blockHit', x: clamp(u.x, block.x0, block.x1), y: 1.4, z: block.z });
+          out.push({ type: 'blockHit', x: clamp(u.x, wallTarget.x0, wallTarget.x1), y: 1.4, z: wallTarget.z });
         }
         continue;
       }
@@ -149,7 +156,7 @@ export class Combat {
       });
     }
 
-    goldEarned += this.updateShells(dt, pool, blockTargetable ? block : null, out);
+    goldEarned += this.updateShells(dt, pool, wallTarget, out);
     return goldEarned;
   }
 

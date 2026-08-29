@@ -204,6 +204,7 @@ export type SimEventType =
   | 'bite'              // 僵尸咬中士兵（喷血 + 湿闷的撕咬声）
   | 'impaled'           // 士兵被墙上的倒刺串死
   | 'weaponPickup'      // 打穿军械门，换上门上印的那把枪
+  | 'armoryLost'        // Boss 到了，军械门还没打掉——机会作废
   | 'blockSmashed'      // 方阵硬撞穿了一堵没打掉的墙（没有奖励）
   | 'bomberBlast'       // 自爆尸在方阵里炸开
   | 'strikeCall'        // 呼叫空袭

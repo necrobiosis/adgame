@@ -20,7 +20,7 @@ import { applyGate, deniedResult } from './Gates';
 import { rollChoice } from './GateRoll';
 import { MidBossController } from './MidBoss';
 import { Squad } from './Squad';
-import { laneAtX, laneBounds, laneCenterX, sideAtX } from './lanes';
+import { laneAtX, laneBounds, sideAtX } from './lanes';
 import type { BlockObstacle, GateGroup, GoldPickup, Phase, SimEvent } from './types';
 
 /** 门本身的纵深（两片墙之间）。 */
@@ -319,9 +319,23 @@ export class World {
   }
 
   /** 当前挡在前面的方块（渲染层与战斗层共用）。 */
+  /**
+   * 军械门：不在赛道上，而是一直吊在方阵正前方。
+   *
+   * 和 activeBlock（真正立在路上的那些方块）分开：它永远走不到，也永远不会
+   * 被撞上，所以既不参与撞墙判定，也不该被 activeBlock 挡住后面那堵金币墙。
+   */
+  get armoryDoor(): BlockObstacle | null {
+    for (const b of this.blocks) {
+      if (b.alive && b.rewardWeapon !== undefined) return b;
+    }
+    return null;
+  }
+
   get activeBlock(): BlockObstacle | null {
     let best: BlockObstacle | null = null;
     for (const b of this.blocks) {
+      if (b.rewardWeapon !== undefined) continue; // 军械门不在路上，见 armoryDoor
       if (!b.alive) continue;
       if (b.z < this.squad.z - 4) continue;
       if (!best || b.z < best.z) best = b;
@@ -355,21 +369,13 @@ export class World {
     // 以前是"速度降到 16% 一点点蹭过去"，干等 + 整队人从墙里穿模，两样最差的
     // 手感全占了。
     const blk = this.activeBlock;
-    const blkReach = blk?.rewardWeapon !== undefined ? BLOCK.door.reach : BLOCK.spikes.reach;
     if (blk && blk.alive && laneAtX(this.squad.x) === blk.lane
-        && this.squad.z > blk.z - blkReach) {
-      if (blk.rewardWeapon !== undefined) {
-        // ── 军械门：没打开就进不去 ──────────────────────────
-        // 它不长刺、也不撞碎。打不开就只能被挤到旁边那一排去——
-        // 代价不是命，是"这把枪你没拿到，还被顶出了自己想走的那一排"。
-        this.shoveOutOfLane(blk, dt);
-      } else {
-        this.impale(dt, blk, out);
-        if (this.squad.z >= blk.z + 0.6) {
-          blk.alive = false;
-          blk.flash = 0.2;
-          out.push({ type: 'blockSmashed', x: (blk.x0 + blk.x1) / 2, y: 1.6, z: blk.z });
-        }
+        && this.squad.z > blk.z - BLOCK.spikes.reach) {
+      this.impale(dt, blk, out);
+      if (this.squad.z >= blk.z + 0.6) {
+        blk.alive = false;
+        blk.flash = 0.2;
+        out.push({ type: 'blockSmashed', x: (blk.x0 + blk.x1) / 2, y: 1.6, z: blk.z });
       }
     }
 
@@ -404,6 +410,13 @@ export class World {
     // "触发 Boss"：进度条瞬间满、bossArenaTargetZ 变成负数，方阵直接被钉死
     if (!this.level.endless && !this.bossTriggered && this.squad.z >= this.arenaZ - BOSS_TRIGGER_AHEAD) {
       this.bossTriggered = true;
+      // Boss 一到，没打掉的军械门就没了——这道选择题的截止时间就是这里
+      const missed = this.armoryDoor;
+      if (missed) {
+        missed.rewardWeapon = undefined;
+        missed.alive = false;
+        out.push({ type: 'armoryLost', x: (missed.x0 + missed.x1) / 2, y: 2.2, z: missed.z });
+      }
       this.enemies.hpScale = this.level.enemyHpScale;
       const beat = this.level.beats.find((b) => b.t === 'boss');
       if (beat && beat.t === 'boss') {
@@ -411,6 +424,15 @@ export class World {
         if (this.boss.previewing) this.boss.awaken(this.arenaZ, beat.hp, out);
         else this.boss.spawn(this.enemies, this.arenaZ, beat.hp, beat.scale, beat.name, beat.kind, out);
       }
+    }
+
+    // 军械门：一直吊在方阵正前方，永远走不到。别的东西都在往后流，只有它不动。
+    const door = this.armoryDoor;
+    if (door) {
+      const [dx0, dx1] = laneBounds(door.lane);
+      door.x0 = dx0;
+      door.x1 = dx1;
+      door.z = this.squad.z + BLOCK.armory.ahead;
     }
 
     // 预览态的 Boss：一直吊在方阵正前方那么远的地方慢慢走，直到竞技场为止。
@@ -429,7 +451,7 @@ export class World {
     this.enemies.damageScale = this.currentDamageScale();
     this.boss.update(dt, this.squad, this.enemies, out);
     this.midBoss.update(dt, this.squad, out);
-    const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, out);
+    const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, this.armoryDoor, out);
     this.enemies.update(dt, this.squad, this.barrier, out);
 
     for (const ev of out) {
@@ -460,24 +482,6 @@ export class World {
       this.stats.goldEarned += this.level.clearGold;
       out.push({ type: 'win', amount: this.level.clearGold });
     }
-  }
-
-  /**
-   * 把方阵从军械门那一排挤出去。
-   *
-   * 门没打开就是一堵实墙，人从墙里穿过去是最糟的画面。这里不停下、不扣血，
-   * 只是把横向位置一点点推到最近的那条空排上——读起来是"撞不开，绕过去"。
-   * 推的方向选离路中心近的一侧，免得把人顶到路肩上卡住。
-   */
-  private shoveOutOfLane(blk: BlockObstacle, dt: number): void {
-    const mid = (blk.x0 + blk.x1) / 2;
-    // 门在左边就往右推，反之亦然；门在中间那排则往人当前偏向的那一侧推
-    const dir = blk.lane === 'mid' ? (this.squad.x >= 0 ? 1 : -1) : (mid > 0 ? -1 : 1);
-    const want = laneCenterX(blk.lane === 'mid'
-      ? (dir > 0 ? 'left' : 'right')
-      : 'mid');
-    const step = STRAFE_SPEED * BLOCK.door.shove * dt;
-    this.squad.x += Math.sign(want - this.squad.x) * Math.min(Math.abs(want - this.squad.x), step);
   }
 
   /**

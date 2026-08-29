@@ -167,7 +167,7 @@ const LEVEL_1: LevelDef = {
     { t: 'run', len: 75 },
     // 军械门：门上印着一把冲锋枪。在撞上它之前打穿，枪就归你；
     // 打不开就被挤到旁边那一排，什么都没有。第一关就把这条规则教掉。
-    { t: 'block', hp: 2400, lane: 'left', weapon: 2, tall: true },
+    { t: 'block', hp: 350000, lane: 'left', weapon: 2, tall: true },
     { t: 'run', len: 44 },
     { t: 'choice' },
     { t: 'run', len: 73 },
@@ -198,7 +198,7 @@ const LEVEL_2: LevelDef = {
     { t: 'run', len: 73 },
     // 军械门：走到它那一排上，在撞上之前打穿就换一把新枪；
     // 打不开就被挤到旁边那一排去——赌的是"我的火力够不够"。
-    { t: 'block', hp: 7500, lane: 'right', weapon: 3, tall: true },
+    { t: 'block', hp: 400000, lane: 'right', weapon: 3, tall: true },
     { t: 'run', len: 16 },
     { t: 'midboss', hp: 5500, scale: 1.08, name: '疫化魁首' },
     { t: 'choice' },
@@ -227,7 +227,7 @@ const LEVEL_3: LevelDef = {
     { t: 'run', len: 67 },
     // 军械门：走到它那一排上，在撞上之前打穿就换一把新枪；
     // 打不开就被挤到旁边那一排去——赌的是"我的火力够不够"。
-    { t: 'block', hp: 18000, lane: 'right', weapon: 4, tall: true },
+    { t: 'block', hp: 300000, lane: 'right', weapon: 4, tall: true },
     { t: 'run', len: 32 },
     { t: 'midboss', hp: 9500, scale: 1.15, name: '尸潮领班' },
     { t: 'choice' },
@@ -256,7 +256,7 @@ const LEVEL_4: LevelDef = {
     { t: 'run', len: 48 },
     // 军械门：走到它那一排上，在撞上之前打穿就换一把新枪；
     // 打不开就被挤到旁边那一排去——赌的是"我的火力够不够"。
-    { t: 'block', hp: 48000, lane: 'left', weapon: 5, tall: true },
+    { t: 'block', hp: 320000, lane: 'left', weapon: 5, tall: true },
     { t: 'run', len: 16 },
     { t: 'midboss', hp: 15000, scale: 1.25, name: '赤红囚徒' },
     { t: 'choice' },
@@ -287,7 +287,7 @@ const LEVEL_5: LevelDef = {
     // 打不开就被挤到旁边那一排去——赌的是"我的火力够不够"。
     // 最后一扇门上印的是湮灭者。九万血——满配也未必打得开，
     // 这是全场最贵的一次赌。
-    { t: 'block', hp: 90000, lane: 'left', weapon: 7, tall: true },
+    { t: 'block', hp: 300000, lane: 'left', weapon: 7, tall: true },
     { t: 'run', len: 29 },
     { t: 'midboss', hp: 24000, scale: 1.35, name: '深渊先驱' },
     { t: 'choice' },

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { ENDLESS_ID } from '../../src/config/levels';
 import { World } from '../../src/sim/World';
-import { AIRSTRIKE, BOSS, BUFF_CAP, FORMATION_MAX_ROWS, ROAD_HALF, SLOT_SPACING_Z, SOLDIER, WEAPON_TIERS, rangeFalloff, type UpgradeId } from '../../src/config/balance';
+import type { BlockObstacle, SimEvent } from '../../src/sim/types';
+import { AIRSTRIKE, BLOCK, BOSS, BUFF_CAP, FORMATION_MAX_ROWS, ROAD_HALF, SLOT_SPACING_Z, SOLDIER, WEAPON_TIERS, rangeFalloff, type UpgradeId } from '../../src/config/balance';
 import { rankFireMul } from '../../src/sim/Combat';
-import { LANE_SIGN, LANE_WIDTH, laneAtX, laneBounds, laneCenterX } from '../../src/sim/lanes';
+import { LANE_ORDER, LANE_SIGN, LANE_WIDTH, laneBounds, laneCenterX } from '../../src/sim/lanes';
 import { LEVELS_MAX_UPGRADES, NO_UPGRADES, upgrades as mkUpgrades } from './fixtures';
 
 
@@ -570,78 +571,109 @@ describe('人多不再等于无敌', () => {
 });
 
 describe('军械门', () => {
-  /** 把方阵直接送到第一关那扇军械门前面。 */
-  function atDoor(upgrades: Record<UpgradeId, number>, loadout?: readonly UpgradeId[], troops = 160) {
+  /**
+   * 军械门和别的东西不一样：它不在路上，是钉在方阵正前方 34 米那儿的一块
+   * 靶子。别的东西都在往后流，只有它不动。所以测试也不能像撞墙那样"走到
+   * 它跟前"——只能站到它那一排上，一路打过去。
+   */
+  function camp(upgrades: Record<UpgradeId, number>, loadout?: readonly UpgradeId[], troops = 160) {
     const w = new World({ levelId: 1, upgrades, loadout, seed: 3 });
     const door = w.blocks.find((b) => b.rewardWeapon !== undefined)!;
     if (troops > 0) w.squad.addSoldiers(troops);
-    w.squad.z = door.z - 26;
-    w.squad.x = laneCenterX(door.lane);
     w.squad.layout();
-    w.enemies.clear();
     return { w, door };
   }
 
+  /** 在门那一排上待着打，清掉所有僵尸，只剩人和门。 */
+  function shootDoor(w: World, door: BlockObstacle, seconds: number): SimEvent[] {
+    const dt = 1 / 60;
+    const log: SimEvent[] = [];
+    for (let t = 0; t < seconds && w.phase === 'running'; t += dt) {
+      w.squad.x = laneCenterX(door.lane);
+      w.step(dt);
+      log.push(...w.drainEvents());
+      w.enemies.clear();
+    }
+    return log;
+  }
+
+  it('别的东西都在动，只有它不动——永远钉在正前方那一排上', () => {
+    const { w, door } = camp(NO_UPGRADES, undefined, 0);
+    const lane = door.lane;
+    const dt = 1 / 60;
+    let moved = 0;
+    for (let t = 0; t < 12 && w.phase === 'running'; t += dt) {
+      w.steer = Math.sin(t * 1.7); // 玩家在三排之间来回窜
+      w.step(dt);
+      w.drainEvents();
+      w.enemies.clear();
+      moved = Math.max(moved, w.squad.z);
+      expect(door.z - w.squad.z, '门应当一直吊在正前方那么远').toBeCloseTo(BLOCK.armory.ahead, 3);
+      expect(door.lane, '门不该换排').toBe(lane);
+    }
+    expect(moved, '方阵得真的往前走了才算数').toBeGreaterThan(20);
+  });
+
   it('门上印的是一把枪，打穿了就换上它', () => {
-    const { w, door } = atDoor(LEVELS_MAX_UPGRADES, ['squad', 'damage', 'fireRate', 'cannon']);
+    const { w, door } = camp(LEVELS_MAX_UPGRADES, ['squad', 'damage', 'fireRate', 'cannon']);
     const want = door.rewardWeapon!;
     // 手里这把要比门上那把差，才谈得上"换"
     expect(w.squad.weaponLevel).toBeLessThan(want);
-    const dt = 1 / 60;
-    let got: string | undefined;
-    for (let t = 0; t < 20 && w.phase === 'running' && w.squad.z < door.z + 8; t += dt) {
-      w.steer = 0;
-      w.step(dt);
-      for (const ev of w.drainEvents()) if (ev.type === 'weaponPickup') got = ev.text;
-      w.enemies.clear();
-    }
-    expect(door.alive, '满配打不穿第一关那扇 2400 血的门').toBe(false);
+    door.hp = door.maxHp = 24000; // 缩短测试时间：真实血量是几十万，打法一样
+    const got = shootDoor(w, door, 30).find((ev) => ev.type === 'weaponPickup');
+    expect(door.alive, '守在门那一排上打了 30 秒还打不穿').toBe(false);
     expect(w.squad.weaponLevel, '打穿了却没换枪').toBe(want);
     expect(got, '没有发出换枪事件').toBeTruthy();
   });
 
-  it('打不开就被挤出那一排——不扎人、也不穿模', () => {
-    // 军械门和金币墙是两套规则：金币墙有刺、硬撞拿命填；
-    // 军械门没刺，打不开就只是进不去。
-    // 裸配、不补人：这点火力打不穿 2400 血的门
-    const { w, door } = atDoor(NO_UPGRADES, undefined, 0);
-    const doorX = laneCenterX(door.lane);
+  it('不站在门那一排上就一发也打不到它', () => {
+    const { w, door } = camp(LEVELS_MAX_UPGRADES, ['squad', 'damage', 'fireRate', 'cannon']);
+    door.hp = door.maxHp = 24000;
+    const other = LANE_ORDER.find((l) => l !== door.lane)!;
     const dt = 1 / 60;
-    let impaled = 0;
-    // 记录**擦身而过的那一刻**站在哪一排。过了门之后玩家当然可以再拐回来，
-    // 关键是经过门的那一瞬间不能还在门里。
-    let closest = Infinity;
-    let laneAtClosest = door.lane;
-    for (let t = 0; t < 20 && w.phase === 'running' && w.squad.z < door.z + 8; t += dt) {
-      // 一路顶着门那一排走：挤开的力度必须压得过玩家自己往门上顶
-      w.steer = Math.abs(doorX - w.squad.x) > 0.3 ? Math.sign(doorX - w.squad.x) : 0;
-      w.step(dt);
-      for (const ev of w.drainEvents()) if (ev.type === 'impaled') impaled++;
-      w.enemies.clear();
-      const dz = Math.abs(door.z - w.squad.z);
-      if (dz < closest) {
-        closest = dz;
-        laneAtClosest = laneAtX(w.squad.x);
-      }
-    }
-    expect(door.alive, '裸配不该打得穿这扇门').toBe(true);
-    expect(impaled, '军械门不该扎人').toBe(0);
-    expect(laneAtClosest, '擦过门的那一刻还站在门那一排上——那就是从门里穿过去了')
-      .not.toBe(door.lane);
-  });
-
-  it('门上的枪比手里的差就不会把人降级', () => {
-    const { w, door } = atDoor(LEVELS_MAX_UPGRADES, ['squad', 'damage', 'fireRate', 'weapon']);
-    // 满级制式装备起手就是轻机枪(4)，比第一关门上那把冲锋枪(2)好
-    expect(w.squad.weaponLevel).toBeGreaterThan(door.rewardWeapon!);
-    const before = w.squad.weaponLevel;
-    const dt = 1 / 60;
-    for (let t = 0; t < 20 && w.phase === 'running' && w.squad.z < door.z + 8; t += dt) {
-      w.steer = 0;
+    for (let t = 0; t < 20 && w.phase === 'running'; t += dt) {
+      w.squad.x = laneCenterX(other);
       w.step(dt);
       w.drainEvents();
       w.enemies.clear();
     }
+    expect(door.hp, '站在别的排上却把门打掉了血——那就是自瞄').toBe(door.maxHp);
+    expect(door.alive).toBe(true);
+  });
+
+  it('Boss 到了还没打掉，门就没了——什么都不给', () => {
+    const { w, door } = camp(NO_UPGRADES, undefined, 0);
+    const before = w.squad.weaponLevel;
+    const dt = 1 / 60;
+    let lost = 0;
+    let picked = 0;
+    let bossCame = false;
+    // 一路狂奔到 Boss 竞技场；裸配这点火力打不穿那扇门
+    for (let t = 0; t < 400 && !bossCame && w.phase === 'running'; t += dt) {
+      w.squad.z += 0.4; // 直接把方阵推到底，不用等它自己走完一整关
+      w.step(dt);
+      for (const ev of w.drainEvents()) {
+        if (ev.type === 'armoryLost') lost++;
+        if (ev.type === 'weaponPickup') picked++;
+        if (ev.type === 'bossSpawn') bossCame = true;
+      }
+      w.enemies.clear();
+    }
+    expect(bossCame, 'Boss 没出场，这个测试就没意义').toBe(true);
+    expect(lost, 'Boss 到了应当发一次"门没了"').toBe(1);
+    expect(picked, '没打穿却白送了一把枪').toBe(0);
+    expect(door.alive, '门应当已经撤走').toBe(false);
+    expect(w.squad.weaponLevel, '没打穿门不该换枪').toBe(before);
+    expect(w.armoryDoor, 'Boss 之后不该还挂着一扇门').toBe(null);
+  });
+
+  it('门上的枪比手里的差就不会把人降级', () => {
+    const { w, door } = camp(LEVELS_MAX_UPGRADES, ['squad', 'damage', 'fireRate', 'weapon']);
+    // 满级制式装备起手就比第一关门上那把好
+    expect(w.squad.weaponLevel).toBeGreaterThan(door.rewardWeapon!);
+    const before = w.squad.weaponLevel;
+    door.hp = door.maxHp = 24000;
+    shootDoor(w, door, 30);
     expect(door.alive).toBe(false);
     expect(w.squad.weaponLevel, '打穿门反而把枪换差了').toBe(before);
   });

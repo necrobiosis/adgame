@@ -17,8 +17,14 @@ export class BlockMesh {
   private readonly bodyMat: THREE.MeshStandardMaterial;
   private readonly baseEmissive: number;
   private readonly numberTex: THREE.CanvasTexture;
+  private readonly labelMat: THREE.MeshBasicMaterial;
   private readonly ctx: CanvasRenderingContext2D;
-  private shown = -1;
+  private shownKey = '';
+  /** 军械门要跟着方阵走，得知道自己出生时在哪儿，才能算偏移 */
+  private readonly armory: boolean;
+  private readonly baseZ: number;
+  private readonly baseCx: number;
+  private bob = 0;
 
   constructor(readonly block: BlockObstacle) {
     const w = block.x1 - block.x0;
@@ -58,39 +64,69 @@ export class BlockMesh {
     // 军械门的画面主角就是门上那把枪，牌子要占掉大半扇门；
     // 普通墙上只有一个血量数字，小一点更耐看
     const labelW = armory ? Math.min(w * 0.9, 8.6) : Math.min(w * 0.62, 6.2);
+    this.labelMat = new THREE.MeshBasicMaterial({ map: this.numberTex, transparent: true, depthWrite: false, toneMapped: false });
     const label = new THREE.Mesh(
       new THREE.PlaneGeometry(labelW, labelW * (armory ? 0.58 : 0.5)),
-      new THREE.MeshBasicMaterial({ map: this.numberTex, transparent: true, depthWrite: false, toneMapped: false }),
+      this.labelMat,
     );
     label.position.set(cx, h * 0.58, labelZ);
     label.rotation.y = Math.PI;
     label.renderOrder = 4;
     this.group.add(label);
 
+    this.armory = armory;
+    this.baseZ = block.z;
+    this.baseCx = cx;
+    // 军械门不落地：它是吊在方阵前面的一块靶子，不是路上的障碍。
+    // 悬空一点点，路面细节从它下面流过去，"别的都在动它不动"才立得住。
+    if (armory) this.group.position.y = 0.45;
+
+    this.shownKey = this.armory ? `${formatHp(Math.ceil(block.hp))}|220` : formatHp(Math.ceil(block.hp));
     this.redraw(block.hp);
   }
 
-  update(): void {
+  /**
+   * @param veil 军械门专用：别的东西从它那一层穿过去的时候把它淡掉，
+   *             不然它会挡住岔路口。普通墙不受影响。
+   */
+  update(veil = 1): void {
     const b = this.block;
     if (!b.alive) {
       this.group.visible = false;
       return;
     }
     const v = Math.max(0, Math.ceil(b.hp));
-    if (v !== this.shown) this.redraw(v);
+    // 军械门有几十万血，formatHp 只到 "350K" 这一档——光比数字的话
+    // 打上千点伤害牌面都不变，玩家会以为自己没打动它。所以再拿血条的
+    // 像素长度一起做键：数字没变但血条掉了一格，也要重画。
+    const key = this.armory ? `${formatHp(v)}|${Math.round((v / b.maxHp) * 220)}` : formatHp(v);
+    if (key !== this.shownKey) {
+      this.shownKey = key;
+      this.redraw(v);
+    }
     // 受击提亮。被上百个士兵持续点射时 flash 会一直是满的，所以幅度必须压得很小，
     // 否则整块会烧成一团白光、把泛光也带炸。
     const f = b.flash > 0 ? b.flash / 0.1 : 0;
     this.bodyMat.emissive.setHex(this.baseEmissive).addScalar(f * 0.1);
+    if (this.armory) {
+      // 门每帧都被重新钉到方阵正前方，模型得跟着挪——否则它会留在出生点，
+      // 和 sim 里那个受击判定分家
+      this.bob += 1 / 60;
+      const cx = (b.x0 + b.x1) / 2;
+      this.group.position.set(cx - this.baseCx, 0.45 + Math.sin(this.bob * 1.6) * 0.12, b.z - this.baseZ);
+      const a = Math.max(0, Math.min(1, veil));
+      this.bodyMat.transparent = a < 0.999;
+      this.bodyMat.opacity = a;
+      this.labelMat.opacity = a;
+    }
   }
 
   private redraw(hp: number): void {
-    this.shown = Math.max(0, Math.ceil(hp));
     const ctx = this.ctx;
     const w = ctx.canvas.width;
     const h = ctx.canvas.height;
     ctx.clearRect(0, 0, w, h);
-    const text = formatHp(this.shown);
+    const text = formatHp(Math.max(0, Math.ceil(hp)));
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
@@ -117,6 +153,15 @@ export class BlockMesh {
     ctx.strokeText(`${tier.name}  ${text}`, w / 2, h * 0.86);
     ctx.fillStyle = '#ffe9b8';
     ctx.fillText(`${tier.name}  ${text}`, w / 2, h * 0.86);
+    // 血条：这扇门要打一整关，数字那一档太粗，得有个看得见在动的东西
+    const frac = Math.max(0, Math.min(1, this.block.maxHp > 0 ? hp / this.block.maxHp : 0));
+    const bw = w * 0.72;
+    const bx = (w - bw) / 2;
+    const by = h * 0.955;
+    ctx.fillStyle = 'rgba(10,14,20,0.85)';
+    ctx.fillRect(bx - 4, by - 11, bw + 8, 22);
+    ctx.fillStyle = '#ffb43c';
+    ctx.fillRect(bx, by - 7, bw * frac, 14);
     this.numberTex.needsUpdate = true;
   }
 
