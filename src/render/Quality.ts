@@ -27,8 +27,14 @@ export interface QualitySettings {
    * 拖出一条望不到头的队伍，所以干脆只露最前排、剩下的用头顶的总数标签表示。
    *
    * 阵型改成"宽度锁死一条车道、纵深封顶、人多就压密"之后，四百人是一个
-   * 7 米宽、二十几米深的密集方块——那是这个游戏最该被看见的画面。
-   * 上限因此放开到接近性能预算：你堆出来的人海，得真的看得见。
+   * 7 米宽、二十几米深的密集方块——那是这个游戏最该被看见的画面，所以
+   * 上限要放开。
+   *
+   * 但放开多少是量出来的，不是拍的：单个士兵 7268 面（比 Boss 的 5924 还重，
+   * 头盔/胸挂/肩甲/腿甲/护目镜/八级武器全在上面），一口气画 200 个就是
+   * 145 万面——比全场杂兵加起来还多，整个场景的三角形数直接涨四成。
+   * 按"士兵总面数压在 60 万以内"倒推，高画质给 80。八十人已经是一个
+   * 十一列、七八排的密集方块，人海感全在，成本只有 58 万面。
    */
   readonly soldierVisualCap: number;
   /** 同屏最多画多少门大炮（单门约 6.6k 面，是场上最重的道具）。 */
@@ -58,7 +64,7 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
     lengthDetail: 1,
     accessory: 2,
     soldierInstances: 220,
-    soldierVisualCap: 200,
+    soldierVisualCap: 80,
     cannonInstances: 32,
     shadowMap: 2048,
     // 杂兵不投影 —— 阴影通道要把所有投影体再画一遍，几百个高模杂兵直接让
@@ -87,7 +93,7 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
     lengthDetail: 0.7,
     accessory: 1,
     soldierInstances: 170,
-    soldierVisualCap: 150,
+    soldierVisualCap: 70,
     cannonInstances: 20,
     shadowMap: 1024,
     crowdShadows: false,
@@ -105,7 +111,7 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
     lengthDetail: 0.4,
     accessory: 0,
     soldierInstances: 100,
-    soldierVisualCap: 90,
+    soldierVisualCap: 45,
     cannonInstances: 12,
     shadowMap: 0,
     crowdShadows: false,
