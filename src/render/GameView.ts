@@ -1144,6 +1144,20 @@ export class GameView {
           this.decals.add('blood', ev.x!, ev.z! + 0.6, 1.6, 0.7);
           break;
         }
+        case 'weaponPickup': {
+          // 打穿军械门：门里那把枪飞出来落进队伍里。
+          // 这是全场最值钱的一次奖励，要有和空袭一个量级的仪式感。
+          this.floats.push({ text: `获得 ${ev.text ?? '新武器'}`, color: '#ffd45a', x: ev.x!, y: 4.4, z: ev.z!, big: true });
+          this.sparks.burst(ev.x!, ev.y!, ev.z!, {
+            count: 48, color: 0xfff0b0, color2: 0xff9a1f, speed: [4, 16], size: [0.6, 1.6],
+            life: [0.4, 0.9], grow: 0.6, drag: 2.2, stretch: 2.0,
+          });
+          this.waves.spawn(ev.x!, ev.z!, 1.2, 14, 0xffd45a, 0.7, 1.1);
+          this.flashes.flash(ev.x!, 2.6, ev.z!, 0xffd45a, 260, 0.4);
+          this.gold.burst(ev.x!, 1.6, ev.z!, 16);
+          this.camera.punch(0.3);
+          break;
+        }
         case 'blockSmashed': {
           // 硬撞穿：碎块 + 一圈冲击波 + 一次强震。没有金币飘字——
           // 这条路是拿命换的，不是打下来的

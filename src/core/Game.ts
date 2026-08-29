@@ -387,6 +387,7 @@ export class Game {
         case 'bite': this.audio.bite(pan(ev.x)); break;
         case 'impaled': this.audio.bite(pan(ev.x)); break;
         case 'blockSmashed': this.audio.explosion(pan(ev.x)); break;
+        case 'weaponPickup': this.audio.gate(true, pan(ev.x)); break;
         case 'spitterHit': this.audio.acidSplash(pan(ev.x)); break;
         case 'bomberBlast': this.audio.explosion(pan(ev.x)); break;
         case 'leaperJump': this.audio.leap(pan(ev.x)); break;

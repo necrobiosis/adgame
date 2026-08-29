@@ -20,7 +20,7 @@ import { applyGate, deniedResult } from './Gates';
 import { rollChoice } from './GateRoll';
 import { MidBossController } from './MidBoss';
 import { Squad } from './Squad';
-import { laneAtX, laneBounds, sideAtX } from './lanes';
+import { laneAtX, laneBounds, laneCenterX, sideAtX } from './lanes';
 import type { BlockObstacle, GateGroup, GoldPickup, Phase, SimEvent } from './types';
 
 /** 门本身的纵深（两片墙之间）。 */
@@ -268,6 +268,7 @@ export class World {
             x1,
             bonus: beat.bonus ?? 0,
             tall: beat.tall ?? false,
+            rewardWeapon: beat.weapon,
           });
           z += 12;
           break;
@@ -354,13 +355,21 @@ export class World {
     // 以前是"速度降到 16% 一点点蹭过去"，干等 + 整队人从墙里穿模，两样最差的
     // 手感全占了。
     const blk = this.activeBlock;
+    const blkReach = blk?.rewardWeapon !== undefined ? BLOCK.door.reach : BLOCK.spikes.reach;
     if (blk && blk.alive && laneAtX(this.squad.x) === blk.lane
-        && this.squad.z > blk.z - BLOCK.spikes.reach) {
-      this.impale(dt, blk, out);
-      if (this.squad.z >= blk.z + 0.6) {
-        blk.alive = false;
-        blk.flash = 0.2;
-        out.push({ type: 'blockSmashed', x: (blk.x0 + blk.x1) / 2, y: 1.6, z: blk.z });
+        && this.squad.z > blk.z - blkReach) {
+      if (blk.rewardWeapon !== undefined) {
+        // ── 军械门：没打开就进不去 ──────────────────────────
+        // 它不长刺、也不撞碎。打不开就只能被挤到旁边那一排去——
+        // 代价不是命，是"这把枪你没拿到，还被顶出了自己想走的那一排"。
+        this.shoveOutOfLane(blk, dt);
+      } else {
+        this.impale(dt, blk, out);
+        if (this.squad.z >= blk.z + 0.6) {
+          blk.alive = false;
+          blk.flash = 0.2;
+          out.push({ type: 'blockSmashed', x: (blk.x0 + blk.x1) / 2, y: 1.6, z: blk.z });
+        }
       }
     }
 
@@ -438,6 +447,7 @@ export class World {
     if (this.strikeCd > 0) this.strikeCd = Math.max(0, this.strikeCd - dt);
     this.updateBombs(dt, out);
 
+    this.claimWeaponDoors(out);
     for (const b of this.blocks) if (b.flash > 0) b.flash = Math.max(0, b.flash - dt);
 
     // ── 胜负 ────────────────────────────────────────────────
@@ -449,6 +459,48 @@ export class World {
       this.gold += this.level.clearGold;
       this.stats.goldEarned += this.level.clearGold;
       out.push({ type: 'win', amount: this.level.clearGold });
+    }
+  }
+
+  /**
+   * 把方阵从军械门那一排挤出去。
+   *
+   * 门没打开就是一堵实墙，人从墙里穿过去是最糟的画面。这里不停下、不扣血，
+   * 只是把横向位置一点点推到最近的那条空排上——读起来是"撞不开，绕过去"。
+   * 推的方向选离路中心近的一侧，免得把人顶到路肩上卡住。
+   */
+  private shoveOutOfLane(blk: BlockObstacle, dt: number): void {
+    const mid = (blk.x0 + blk.x1) / 2;
+    // 门在左边就往右推，反之亦然；门在中间那排则往人当前偏向的那一侧推
+    const dir = blk.lane === 'mid' ? (this.squad.x >= 0 ? 1 : -1) : (mid > 0 ? -1 : 1);
+    const want = laneCenterX(blk.lane === 'mid'
+      ? (dir > 0 ? 'left' : 'right')
+      : 'mid');
+    const step = STRAFE_SPEED * BLOCK.door.shove * dt;
+    this.squad.x += Math.sign(want - this.squad.x) * Math.min(Math.abs(want - this.squad.x), step);
+  }
+
+  /**
+   * 军械门打穿之后把枪发下去。
+   *
+   * 只升不降：门上印的枪比手里的差就只当普通奖励墙（还是给钱），
+   * 不会因为打穿了一扇门反而换回一把烂枪。
+   */
+  private claimWeaponDoors(out: SimEvent[]): void {
+    for (const b of this.blocks) {
+      if (b.alive || b.rewardWeapon === undefined) continue;
+      const want = b.rewardWeapon;
+      b.rewardWeapon = undefined;
+      // 只升不降：upgradeWeapon 收的是**增量**，差值为负会真的把枪换差，
+      // 所以这个判断不能省
+      if (want <= this.squad.weaponLevel) continue;
+      const gained = this.squad.upgradeWeapon(want - this.squad.weaponLevel);
+      if (gained > 0) {
+        out.push({
+          type: 'weaponPickup', x: (b.x0 + b.x1) / 2, y: 2.2, z: b.z,
+          amount: this.squad.weaponLevel, text: this.squad.weapon.name,
+        });
+      }
     }
   }
 
