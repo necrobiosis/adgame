@@ -14,6 +14,7 @@ import { LANE_SIGN } from '../sim/lanes';
 import { ChaseCamera, Renderer } from './Renderer';
 import { createCity } from './env/City';
 import { createBridge } from './env/Bridge';
+import { BRICK_SKY, createBrickBridge, createBrickCity, createBrickProps } from './env/Brick';
 import { Dragon } from './env/Dragon';
 import { createLights, createSky, createSkyEnvironment, skyForLevel, type SceneLights, type SkyTheme } from './env/Sky';
 import { createProps, propsForLevel } from './env/Props';
@@ -171,6 +172,9 @@ export interface FloatRequest {
  * 之后，中远景不再只是气氛，而是玩家做决策要读的信息。雾太近的话，
  * "那一排远处有三只泰坦"这句话玩家根本看不到。
  */
+/** 走积木/像素画风的关卡。目前只有第一关。 */
+const BRICK_LEVEL = 1;
+
 const LEVEL_FLAVOUR: readonly { weather: WeatherKind; window: number; fogNear: number; fogFar: number }[] = [
   // 一 · 跨海大桥：远海方向飘来的灰
   { weather: 'ash',   window: 0xff9c3a, fogNear: 105, fogFar: 430 },
@@ -511,7 +515,10 @@ export class GameView {
     const root = new THREE.Group();
     const bossBeat = world.level.beats.find((b) => b.t === 'boss');
     if (bossBeat && bossBeat.t === 'boss') this.rebuildBoss(bossBeat.kind);
-    const theme: SkyTheme = skyForLevel(world.level.id);
+    // 第一关是积木/像素关：整套环境和后期都换一条路，别的关照旧。
+    const brickLevel = world.level.id === BRICK_LEVEL;
+    this.r.setPixelStyle(brickLevel);
+    const theme: SkyTheme = brickLevel ? BRICK_SKY : skyForLevel(world.level.id);
     const flavour = LEVEL_FLAVOUR[Math.max(0, Math.min(LEVEL_FLAVOUR.length - 1, world.level.id - 1))]!;
     const q = this.r.quality;
 
@@ -522,15 +529,25 @@ export class GameView {
     const lights = createLights(theme, q.shadowMap);
     for (const l of lights.all) root.add(l);
     this.lights = lights;
-    this.scene.fog = new THREE.Fog(theme.fog, flavour.fogNear, flavour.fogFar);
+    // 积木关的雾要往远推：这套画风的看点就是远处那片彩色积木城，
+    // 照写实关 105 米就起雾的话，城市全糊在一片白里
+    this.scene.fog = new THREE.Fog(theme.fog, brickLevel ? 260 : flavour.fogNear, brickLevel ? 900 : flavour.fogFar);
 
     const rng = new Rng(0x1234 + world.level.id * 977);
-    root.add(createBridge(world.totalLength, rng, q.envDetail));
-    root.add(createCity(world.totalLength, rng, q.envDetail, flavour.window));
-    // 路肩陈设：每关一套配方，用近景把五关的差别坐实（远景交给天色和天气）
-    root.add(createProps(world.totalLength, rng, propsForLevel(world.level.id), q.envDetail));
+    if (brickLevel) {
+      root.add(createBrickBridge(world.totalLength, rng, q.envDetail));
+      root.add(createBrickCity(world.totalLength, rng, q.envDetail));
+      root.add(createBrickProps(world.totalLength, rng, q.envDetail));
+    } else {
+      root.add(createBridge(world.totalLength, rng, q.envDetail));
+      root.add(createCity(world.totalLength, rng, q.envDetail, flavour.window));
+      // 路肩陈设：每关一套配方，用近景把五关的差别坐实（远景交给天色和天气）
+      root.add(createProps(world.totalLength, rng, propsForLevel(world.level.id), q.envDetail));
+    }
 
-    if (flavour.weather !== 'none') {
+    // 积木关不下灰也不下火星：飘着的颗粒和像素化的颗粒会打架，
+    // 屏幕上分不清哪些是天气哪些是像素块
+    if (flavour.weather !== 'none' && !brickLevel) {
       this.weather = new Weather(flavour.weather, q.envDetail);
       root.add(this.weather.mesh);
     }
@@ -541,7 +558,7 @@ export class GameView {
       this.gateWalls.push({ z: g.z, wall, id: g.id });
     }
     for (const b of world.blocks) {
-      const mesh = new BlockMesh(b);
+      const mesh = new BlockMesh(b, brickLevel);
       root.add(mesh.group);
       this.blockMeshes.push(mesh);
     }
@@ -550,8 +567,10 @@ export class GameView {
     this.scene.add(root);
     this.camera.snap(world.squad.x, world.squad.z);
 
-    // 末日城市里常驻几根烟柱——废墟还在闷烧，不只是配色暗了而已
+    // 末日城市里常驻几根烟柱——废墟还在闷烧，不只是配色暗了而已。
+    // 积木关不要：那是一座干干净净的塑料城。
     this.smokeColumns = [];
+    if (brickLevel) return;
     const colRng = new Rng(0x9e3 + world.level.id * 131);
     for (let i = 0; i < 6; i++) {
       const side = colRng.next() < 0.5 ? -1 : 1;

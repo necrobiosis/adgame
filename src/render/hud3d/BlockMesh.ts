@@ -4,6 +4,7 @@ import type { BlockObstacle } from '../../sim/types';
 import { boltRow, chamferBox, lathe, merge, paint, place, plate, roundedBox } from '../geom/hardSurface';
 import { bakeSurface, weldSmooth } from '../geom/deform';
 import { PRESET, industrial } from '../mat/pbr';
+import { BRICK, plastic } from '../env/Brick';
 
 /**
  * 挡路的装甲方块 —— 广告里那块写着 944 的金块。
@@ -20,7 +21,11 @@ export class BlockMesh {
   private readonly ctx: CanvasRenderingContext2D;
   private shownKey = '';
 
-  constructor(readonly block: BlockObstacle) {
+  /**
+   * @param brickStyle 积木关：换成平涂塑料件。金属质感和三平面噪声在那一关
+   *                   会让墙从整个场景里跳出来，看着像是别的游戏里搬来的。
+   */
+  constructor(readonly block: BlockObstacle, brickStyle = false) {
     const w = block.x1 - block.x0;
     const h = block.tall ? BLOCK.wallHeight : BLOCK.height;
     const d = 2.8;
@@ -33,10 +38,14 @@ export class BlockMesh {
     const gold = !armory && block.bonus > 0;
     const cx = (block.x0 + block.x1) / 2;
 
-    this.baseEmissive = gold ? 0x2c1c00 : armory ? 0x081826 : 0x0b0e12;
-    this.bodyMat = industrial(gold
-      ? { ...PRESET.gold(), color: 0xffffff }
-      : { ...PRESET.bareSteel(), color: armory ? 0x8fb6d8 : 0xffffff, metalness: armory ? 0.75 : 0.55, roughness: armory ? 0.34 : 0.46 });
+    this.baseEmissive = brickStyle
+      ? (gold ? 0x241800 : armory ? 0x101c26 : 0x0a0c0e)
+      : (gold ? 0x2c1c00 : armory ? 0x081826 : 0x0b0e12);
+    this.bodyMat = brickStyle
+      ? plastic(gold ? BRICK.yellow : armory ? BRICK.blue : BRICK.grey)
+      : industrial(gold
+        ? { ...PRESET.gold(), color: 0xffffff }
+        : { ...PRESET.bareSteel(), color: armory ? 0x8fb6d8 : 0xffffff, metalness: armory ? 0.75 : 0.55, roughness: armory ? 0.34 : 0.46 });
     this.bodyMat.emissive = new THREE.Color(this.baseEmissive);
 
     const body = new THREE.Mesh(buildArmoredBlock(w, h, d, gold, armory), this.bodyMat);
