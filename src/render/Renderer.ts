@@ -5,8 +5,6 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
-import type { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { createPixelPass } from './fx/PixelPass';
 import { QUALITY, type QualityLevel, type QualitySettings } from './Quality';
 
 /** 竖屏 9:16。桌面端在窗口里居中放一块竖屏画布，手机端就是满屏。 */
@@ -22,9 +20,6 @@ export class Renderer {
   private bloom!: UnrealBloomPass;
   private smaa: SMAAPass | null = null;
   private gtao: GTAOPass | null = null;
-  private pixel: ShaderPass | null = null;
-  /** 像素风关卡开关。第一关走这条路，别的关照旧。 */
-  private pixelStyle = false;
   private renderPass!: RenderPass;
   /** 画布的 CSS 尺寸，UI 层拿它做世界坐标 → 屏幕坐标投影。 */
   viewWidth = 0;
@@ -76,31 +71,14 @@ export class Renderer {
     composer.addPass(this.bloom);
     composer.addPass(new OutputPass());
 
-    // 像素风下不做抗锯齿：这套画风要的就是硬边。SMAA 会把每个像素块的边
-    // 磨出一圈过渡色，正好抵消掉像素化——两件事顶着干，还白花一趟 pass。
-    if (this.quality.smaa && !this.pixelStyle) {
+    if (this.quality.smaa) {
       this.smaa = new SMAAPass();
       composer.addPass(this.smaa);
     } else {
       this.smaa = null;
     }
 
-    if (this.pixelStyle) {
-      this.pixel = createPixelPass();
-      composer.addPass(this.pixel);
-    } else {
-      this.pixel = null;
-    }
-
     this.composer = composer;
-  }
-
-  /** 切换像素风渲染（只有第一关用）。会重建整条后期链。 */
-  setPixelStyle(on: boolean): void {
-    if (on === this.pixelStyle) return;
-    this.pixelStyle = on;
-    this.buildComposer();
-    this.resize();
   }
 
   applyQuality(level: QualityLevel): void {
@@ -144,12 +122,6 @@ export class Renderer {
     this.composer.setSize(w, h);
     this.bloom.setSize(w, h);
     this.gtao?.setSize(w, h);
-    // 像素块的大小要按**绘制缓冲**的尺寸算，不是 CSS 尺寸——
-    // 高 DPI 屏上两者能差一倍，用错了像素颗粒会跟着设备变粗变细
-    if (this.pixel) {
-      const dpr = this.renderer.getPixelRatio();
-      (this.pixel.uniforms.uResolution!.value as THREE.Vector2).set(w * dpr, h * dpr);
-    }
     this.camera.aspect = ASPECT;
     this.camera.updateProjectionMatrix();
   }

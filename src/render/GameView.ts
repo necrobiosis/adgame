@@ -172,7 +172,7 @@ export interface FloatRequest {
  * 之后，中远景不再只是气氛，而是玩家做决策要读的信息。雾太近的话，
  * "那一排远处有三只泰坦"这句话玩家根本看不到。
  */
-/** 走积木/像素画风的关卡。目前只有第一关。 */
+/** 走积木画风的关卡。目前只有第一关。 */
 const BRICK_LEVEL = 1;
 
 const LEVEL_FLAVOUR: readonly { weather: WeatherKind; window: number; fogNear: number; fogFar: number }[] = [
@@ -515,9 +515,8 @@ export class GameView {
     const root = new THREE.Group();
     const bossBeat = world.level.beats.find((b) => b.t === 'boss');
     if (bossBeat && bossBeat.t === 'boss') this.rebuildBoss(bossBeat.kind);
-    // 第一关是积木/像素关：整套环境和后期都换一条路，别的关照旧。
+    // 第一关是积木关：整套环境换一条路，别的关照旧。
     const brickLevel = world.level.id === BRICK_LEVEL;
-    this.r.setPixelStyle(brickLevel);
     const theme: SkyTheme = brickLevel ? BRICK_SKY : skyForLevel(world.level.id);
     const flavour = LEVEL_FLAVOUR[Math.max(0, Math.min(LEVEL_FLAVOUR.length - 1, world.level.id - 1))]!;
     const q = this.r.quality;
@@ -545,8 +544,8 @@ export class GameView {
       root.add(createProps(world.totalLength, rng, propsForLevel(world.level.id), q.envDetail));
     }
 
-    // 积木关不下灰也不下火星：飘着的颗粒和像素化的颗粒会打架，
-    // 屏幕上分不清哪些是天气哪些是像素块
+    // 积木关不下灰也不下火星：这是一座干干净净的塑料城，
+    // 飘着的灰会把塑料件的高光糊掉
     if (flavour.weather !== 'none' && !brickLevel) {
       this.weather = new Weather(flavour.weather, q.envDetail);
       root.add(this.weather.mesh);

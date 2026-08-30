@@ -47,7 +47,12 @@ export interface QualitySettings {
   readonly gtao: boolean;
   /** 是否开启 SMAA。 */
   readonly smaa: boolean;
-  /** 设备像素比上限。 */
+  /**
+   * 设备像素比上限。
+   *
+   * 高画质给 3：现在的手机屏基本都是 3x，卡在 2 等于把画面按 2/3 渲染再放大，
+   * 塑料件那圈倒角高光和路面的印刷线首先被磨掉——这套画风的精致感全在边缘上。
+   */
   readonly maxPixelRatio: number;
   /** 各向异性过滤级别。 */
   readonly anisotropy: number;
@@ -81,8 +86,8 @@ export const QUALITY: Record<QualityLevel, QualitySettings> = {
      */
     gtao: false,
     smaa: true,
-    maxPixelRatio: 2,
-    anisotropy: 8,
+    maxPixelRatio: 3,
+    anisotropy: 16,
     envDetail: 1,
   },
   medium: {

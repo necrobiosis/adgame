@@ -8,86 +8,148 @@ import type { SkyTheme } from './Sky';
 /**
  * 第一关的积木场景。
  *
- * 别的关是"末日写实"：三平面细节、边缘磨损、烘焙 AO、倒角型材。这一关整套
- * 换掉——所有东西都是**塑料积木块**：一个盒子，顶上一排凸点，平涂的鲜艳颜色，
- * 平面着色。再配上后期那一趟像素化，读起来就是"用积木搭出来的像素游戏"。
+ * 目标是"乐高大电影"那种画面：**高清、干净、亮**的注塑塑料件。所有精致感
+ * 都来自三件事，缺一件就立刻塌成"方块游戏"：
  *
- * 两条规则贯穿这个文件：
- *  · 不用倒角、不用磨损、不用三平面噪声。所有让表面"像真材料"的手段在这里
- *    都是反效果——积木要的就是干净的塑料面。
- *  · 尺寸按一个统一的模数 UNIT 走。积木好看的根源是所有零件都对得上格子，
- *    随手写的数字会立刻露馅。
+ *  1. **零件比例是真的**。一颗凸点的间距是这个世界的模数 UNIT，其余尺寸全
+ *     按真实积木的比例推：砖高 1.2、板高 0.4、凸点半径 0.3、凸点高 0.225。
+ *     这几个数字是这套画风的骨架——随手写的高度会立刻让人觉得"不对劲"，
+ *     哪怕说不出哪里不对。
+ *  2. **每条棱都有倒角**。真实积木为了脱模，每条边都断了一刀。那圈倒角在
+ *     强光下会亮成一条细白线，零件的"体积感"全靠它。这也是为什么这一关
+ *     不能降分辨率——倒角只有一两个像素宽，一压分辨率就没了。
+ *  3. **ABS 的高光**。塑料件不是哑光的：清漆层（clearcoat）给出一层又硬又
+ *     窄的高光，跟着天空环境贴图走。这是塑料和石头/金属最直接的区别。
+ *
+ * 场景是**用零件搭出来的**，不是"把东西做成方的"：砖、板、平滑片、斜面、
+ * 圆砖各司其职。认得出零件，才认得出这是积木。
  */
 
-/** 积木模数：一颗凸点的间距。所有尺寸都是它的整数倍。 */
+/** 凸点间距。这个世界的模数，其余尺寸都是它的比例。 */
 const UNIT = 0.8;
+/** 一块标准砖的高度（真实比例 9.6mm / 8mm）。 */
+const BRICK_H = UNIT * 1.2;
+/** 一块板的高度（3.2mm / 8mm）。砖 = 三块板。 */
+const PLATE_H = UNIT * 0.4;
+/** 凸点半径与高度（4.8mm、1.8mm）。 */
+const STUD_R = UNIT * 0.3;
+const STUD_H = UNIT * 0.225;
+/** 脱模倒角。小到几乎看不见，但每条棱上的那条高光全靠它。 */
+const BEVEL = UNIT * 0.028;
 
-/** 经典积木色板。饱和、明确、不带脏色——脏色交给光照和雾去做。 */
+/** 经典积木色板。饱和、明确、不带脏色——脏色交给光照去做。 */
 export const BRICK = {
   red: 0xc4281c,
-  yellow: 0xf2cd37,
-  blue: 0x1b6dc1,
-  green: 0x2f8f4e,
-  lime: 0x9ac93a,
-  orange: 0xe8761f,
-  tan: 0xd8c48c,
+  yellow: 0xf5cd2f,
+  blue: 0x0d6ebc,
+  azure: 0x3ea9dd,
+  green: 0x287f46,
+  lime: 0xa5ca42,
+  orange: 0xe6820e,
+  tan: 0xdec69c,
   brown: 0x7c4f2b,
-  grey: 0x9aa19c,
-  darkGrey: 0x50565a,
-  white: 0xeeeeec,
-  black: 0x1e2124,
+  grey: 0xa0a5a9,
+  darkGrey: 0x545a5e,
+  white: 0xf2f3f2,
+  black: 0x1b2a34,
+  sand: 0x9ba19d,
 } as const;
 
 /**
- * 积木塑料材质。
+ * ABS 塑料。
  *
- * flatShading 是这套画风的关键一环：塑料件的每个面都该是一块均匀的色，
- * 顶点法线插值出来的柔和过渡会让它重新变回"有机的"表面。
+ * clearcoat 是这套材质的重点：注塑件表面有一层很薄的光泽层，高光又窄又硬，
+ * 和底色几乎不混。用普通 StandardMaterial 调低粗糙度也能亮，但那是"抛光的
+ * 石头"——高光会被底色染上颜色，塑料感就没了。
+ *
+ * 不开 flatShading：棱角交给倒角去表达。flatShading 会把凸点的侧面切成
+ * 一圈生硬的小平面，正是廉价方块感的来源。
  */
-export function plastic(color = 0xffffff, opts?: { rough?: number }): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
+export function plastic(color = 0xffffff, opts?: { rough?: number }): THREE.MeshPhysicalMaterial {
+  return new THREE.MeshPhysicalMaterial({
     color,
     vertexColors: true,
-    flatShading: true,
-    roughness: opts?.rough ?? 0.46,
+    roughness: opts?.rough ?? 0.36,
     metalness: 0.0,
+    clearcoat: 0.75,
+    clearcoatRoughness: 0.16,
   });
 }
 
-/** 一颗凸点。段数给 8——再多在像素化之后完全看不出来，纯浪费三角形。 */
-function stud(): THREE.BufferGeometry {
-  const r = UNIT * 0.31;
-  const h = UNIT * 0.19;
-  return lathe([[0, 0], [r, 0], [r, h * 0.8], [r * 0.86, h], [0, h]], 8);
+/**
+ * 一颗凸点。
+ *
+ * 侧壁 + 顶面之间断一刀小倒角——这一刀是凸点在灯光下那一圈亮边的来源。
+ * 16 段：凸点是画面里最小也最密的圆形，段数低了会在近景露出多边形轮廓。
+ */
+function stud(segments = 16): THREE.BufferGeometry {
+  const c = STUD_R * 0.12;
+  return lathe([
+    [0, 0],
+    [STUD_R, 0],
+    [STUD_R, STUD_H - c],
+    [STUD_R - c, STUD_H],
+    [0, STUD_H],
+  ], segments);
+}
+
+export interface PartOptions {
+  /** 顶面有没有凸点。平滑片（tile）没有。 */
+  studs?: boolean;
+  /** 凸点的圆周段数。远景件可以调低。 */
+  studSegments?: number;
 }
 
 /**
- * 一块积木：盒子 + 顶面的凸点阵列。
+ * 一个积木零件：`cols × rows` 个凸点、`plates` 块板那么高。
  *
- * @param cols 横向几颗凸点，`rows` 纵向几颗。给 0 就是没有凸点的平板件。
+ * 高度用"几块板"而不是米来表达，是因为积木世界里所有竖直尺寸都是板的整数倍——
+ * 用米写一定会写出对不上格子的高度，堆起来就会露出缝或者穿模。
  */
-export function brick(
+export function part(
   cols: number,
   rows: number,
-  height: number,
+  plates: number,
   color: number,
-  opts?: { studs?: boolean },
+  opts?: PartOptions,
 ): THREE.BufferGeometry {
   const w = cols * UNIT;
   const d = rows * UNIT;
-  const parts: THREE.BufferGeometry[] = [paint(chamferBox(w, height, d, UNIT * 0.045), color)];
+  const h = plates * PLATE_H;
+  const parts: THREE.BufferGeometry[] = [paint(chamferBox(w, h, d, BEVEL), color)];
   if (opts?.studs !== false) {
-    const s = stud();
+    const s = stud(opts?.studSegments ?? 16);
     for (let i = 0; i < cols; i++) {
       for (let j = 0; j < rows; j++) {
         parts.push(paint(place(s.clone(), {
           x: (i - (cols - 1) / 2) * UNIT,
-          y: height / 2,
+          y: h / 2,
           z: (j - (rows - 1) / 2) * UNIT,
         }), color));
       }
     }
     s.dispose();
+  }
+  return merge(parts);
+}
+
+/** 一块标准砖（三块板高）。 */
+const brick = (cols: number, rows: number, color: number, opts?: PartOptions) =>
+  part(cols, rows, 3, color, opts);
+
+/**
+ * 摞起来的一叠砖。
+ *
+ * 只有最上面那块有凸点——下面每一块的凸点都插在上一块的底管里，现实中
+ * 一颗也看不见。这既是"对不对"的问题，也是这一关最大的一笔性能账：
+ * 一颗凸点是十六段的回转体，一叠四块砖的柱子，白做的凸点占掉它四分之三
+ * 的面数。桥上这种重复件成百上千，省下来的是几十万个三角形。
+ */
+function stack(cols: number, rows: number, count: number, segments = 12): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < count; i++) {
+    const top = i === count - 1;
+    parts.push(place(brick(cols, rows, 0xffffff, top ? { studSegments: segments } : { studs: false }), { y: i * BRICK_H }));
   }
   return merge(parts);
 }
@@ -109,18 +171,18 @@ function coloured(
 /**
  * 积木天色。
  *
- * 比末日那几套亮得多也干净得多：积木的颜色只有在明亮的光下才立得住，
- * 压暗一档就全糊成灰。雾色跟着天色走，远处的城市自然褪成一片浅色剪影。
+ * 亮、干净、偏冷。塑料件的高光是天空贴图直接反射出来的，天要是压暗一档，
+ * 所有零件同时失去那圈亮边，整场戏就垮了。
  */
 export const BRICK_SKY: SkyTheme = {
-  top: 0x3f86cc,
-  horizon: 0xbcd8ea,
-  ground: 0x7d8a80,
-  fog: 0xbfd4e2,
-  sun: 0xfff6e0,
-  ambient: 0xa8c2d6,
-  sunDir: [-0.42, 0.58, 0.36],
-  sunIntensity: 8.5,
+  top: 0x2f7fcc,
+  horizon: 0xcfe4f2,
+  ground: 0x8b968c,
+  fog: 0xcfe0ec,
+  sun: 0xfffaf0,
+  ambient: 0xb4cbdd,
+  sunDir: [-0.42, 0.6, 0.34],
+  sunIntensity: 9.5,
 };
 
 // ── 桥 ────────────────────────────────────────────────────────
@@ -128,12 +190,9 @@ export const BRICK_SKY: SkyTheme = {
 /**
  * 积木大桥。
  *
- * 和写实版同一套布局（路面 / 路缘 / 护栏 / 门架 / 桥墩），但每一件都换成
- * 积木：没有工字钢、没有斜撑、没有线缆，全部是方块加凸点。
- *
- * 路面贴图故意画得很小（64×128）再用 NearestFilter 放大——像素画的颗粒
- * 必须来自贴图本身，交给后期那一趟像素化去"糊"是不够的，那样只会把
- * 一张高清贴图糊成一团。
+ * 和写实版同一套布局（路面 / 路肩 / 护栏 / 门架 / 桥墩），但每一件都是能叫出
+ * 名字的零件：路面是**平滑片**（车开的地方不该有凸点，这是积木城的常识），
+ * 路肩是**板**，护栏是砖，门架是砖柱加横梁。
  */
 export function createBrickBridge(length: number, rng: Rng, detail = 1): THREE.Group {
   const g = new THREE.Group();
@@ -141,92 +200,113 @@ export function createBrickBridge(length: number, rng: Rng, detail = 1): THREE.G
   const z0 = -120;
   const mat = plastic();
 
-  // ── 路面 ───────────────────────────────────────────────────
-  const roadTex = canvasTexture(64, 128, (ctx, w, h) => {
-    // 沥青底色 + 一层粗颗粒的深浅格子。格子是整块整块填的，不是噪点——
-    // 像素画里的"质感"是几块颜色拼出来的，不是随机点撒出来的。
-    ctx.fillStyle = '#4b5157';
+  // ── 路面：印着车道线的平滑片 ───────────────────────────────
+  // 贴图画到 1024×2048：车道线的边必须是干净利落的一条直线。这一关的
+  // 精致感就在这些边上，贴图糊了再高的分辨率也救不回来。
+  const roadTex = canvasTexture(1024, 2048, (ctx, w, h) => {
+    // 深蓝灰：积木城的路板就是这个色。底色压得住，白线才亮得起来——
+    // 第一版给到 #3f4548，在这套强光下整条路泛白，车道线跟着糊掉了。
+    ctx.fillStyle = '#2b3134';
     ctx.fillRect(0, 0, w, h);
-    for (let y = 0; y < h; y += 4) {
-      for (let x = 0; x < w; x += 4) {
-        if (Math.random() < 0.34) {
-          ctx.fillStyle = Math.random() < 0.5 ? '#545a61' : '#43484e';
-          ctx.fillRect(x, y, 4, 4);
-        }
-      }
+    // 零件之间的接缝：路面是一片片平滑片拼出来的，缝要看得见
+    ctx.strokeStyle = 'rgba(16,19,21,0.85)';
+    ctx.lineWidth = 5;
+    const cell = w / 12;
+    for (let x = 0; x <= w; x += cell) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
     }
-    // 车道分隔线：三排的边界是这个游戏每一秒都要读的信息，必须最亮最粗
-    ctx.fillStyle = '#f2e9c8';
+    for (let y = 0; y <= h; y += cell) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+    // 车道分隔线：三排的边界是这个游戏每一秒都要读的信息，最亮最粗
+    ctx.fillStyle = '#f4efdc';
     for (const cx of [w / 3, (w * 2) / 3]) {
-      for (let y = 0; y < h; y += 24) ctx.fillRect(Math.round(cx) - 2, y, 4, 16);
+      for (let y = 0; y < h; y += 300) ctx.fillRect(cx - 14, y, 28, 190);
     }
-    // 路肩边线
-    ctx.fillStyle = '#d8cfae';
-    ctx.fillRect(2, 0, 3, h);
-    ctx.fillRect(w - 5, 0, 3, h);
-  }, { repeat: [1, Math.round(L / 14)] });
-  roadTex.magFilter = THREE.NearestFilter;
-  roadTex.minFilter = THREE.NearestMipmapNearestFilter;
-  roadTex.anisotropy = 1;
+    // 路肩实线
+    ctx.fillStyle = '#e2dcc4';
+    ctx.fillRect(26, 0, 18, h);
+    ctx.fillRect(w - 44, 0, 18, h);
+  }, { repeat: [1, Math.round(L / 24)] });
+  roadTex.anisotropy = 16;
 
   const road = new THREE.Mesh(
-    new THREE.BoxGeometry(ROAD_HALF * 2, 0.7, L),
-    new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.72, metalness: 0 }),
+    chamferBox(ROAD_HALF * 2, PLATE_H * 2, L, BEVEL),
+    // 路板的清漆比零件弱得多：它是整场唯一一块大面积的平面，
+    // 给足高光会把整条路照成一面镜子，车道线全被冲掉
+    new THREE.MeshPhysicalMaterial({
+      map: roadTex, roughness: 0.62, metalness: 0, clearcoat: 0.22, clearcoatRoughness: 0.3,
+    }),
   );
-  road.position.set(0, -0.35, z0 + L / 2);
+  road.position.set(0, -PLATE_H, z0 + L / 2);
   road.receiveShadow = true;
   g.add(road);
 
-  // 桥面底板：一整条深灰板件
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(ROAD_HALF * 2 + 2.6, 1.1, L), plastic(BRICK.darkGrey));
-  deck.position.set(0, -1.2, z0 + L / 2);
+  // 桥面底板：一整条深灰件，给路面一个厚度
+  const deck = new THREE.Mesh(
+    chamferBox(ROAD_HALF * 2 + 2.4, BRICK_H, L, BEVEL),
+    plastic(BRICK.darkGrey),
+  );
+  deck.position.set(0, -PLATE_H * 2 - BRICK_H / 2, z0 + L / 2);
   g.add(deck);
 
-  // ── 护栏：一段段红白相间的积木 ─────────────────────────────
+  // ── 路肩：一排露着凸点的板，把"这是搭出来的"讲明白 ─────────
+  const shoulderGeo = part(1, 8, 1, 0xffffff, { studSegments: 8 });
+  const shoulders: { m: THREE.Matrix4; c: number }[] = [];
+  for (let z = z0; z < z0 + L; z += UNIT * 8) {
+    for (const sx of [-1, 1]) {
+      shoulders.push({ m: trs(sx * (ROAD_HALF - UNIT / 2), PLATE_H * 0.5, z + UNIT * 4), c: BRICK.sand });
+    }
+  }
+  g.add(coloured(shoulderGeo, mat, shoulders, { receiveShadow: true }));
+
+  // ── 护栏：红白相间的砖，两块摞一段 ─────────────────────────
   const segLen = UNIT * 8;
-  const barrierGeo = brick(1, 8, UNIT * 1.5, 0xffffff);
+  const barrierGeo = stack(1, 8, 2);
   const barriers: { m: THREE.Matrix4; c: number }[] = [];
-  let i = 0;
+  let seg = 0;
   for (let z = z0; z < z0 + L; z += segLen) {
     for (const sx of [-1, 1]) {
       barriers.push({
-        m: trs(sx * (ROAD_HALF + 0.4), UNIT * 0.75, z + segLen / 2),
-        c: i % 2 === 0 ? BRICK.red : BRICK.white,
+        m: trs(sx * (ROAD_HALF + UNIT * 0.6), BRICK_H / 2, z + segLen / 2),
+        c: seg % 2 === 0 ? BRICK.red : BRICK.white,
       });
     }
-    i++;
+    seg++;
   }
   g.add(coloured(barrierGeo, mat, barriers, { castShadow: true, receiveShadow: true }));
 
-  // ── 门架：黄色方柱 + 横梁，代替原来的橙色钢桁架 ────────────
-  const step = (UNIT * 8) / Math.max(0.35, detail);
-  const postH = 3.6;
-  const postGeo = brick(2, 2, postH, 0xffffff);
+  // ── 门架：砖柱 + 横梁 ──────────────────────────────────────
+  const step = (UNIT * 10) / Math.max(0.35, detail);
+  const postPlates = 12; // 四块砖高
+  const postGeo = stack(2, 2, 4);
   const posts: { m: THREE.Matrix4; c: number }[] = [];
   for (let z = z0; z < z0 + L; z += step) {
-    for (const sx of [-1, 1]) posts.push({ m: trs(sx * (ROAD_HALF + 1.5), postH / 2, z), c: BRICK.yellow });
+    for (const sx of [-1, 1]) {
+      posts.push({ m: trs(sx * (ROAD_HALF + UNIT * 2), BRICK_H / 2, z), c: BRICK.yellow });
+    }
   }
-  g.add(coloured(postGeo, mat, posts, { castShadow: true }));
+  g.add(coloured(postGeo, mat, posts, { castShadow: true, receiveShadow: true }));
 
-  // 上弦：两条通长的横梁。积木件不做通长挤出，直接用一个长盒子——
-  // 凸点在这个高度上根本看不见，为它多花几千个面不值。
+  // 上弦：两条通长的梁。这么长的件不逐颗放凸点——只做一条带倒角的梁，
+  // 凸点在这个高度上一颗也看不见，为它花的面全是浪费。
   for (const sx of [-1, 1]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(UNIT * 2, UNIT * 1.2, L), plastic(BRICK.yellow));
-    rail.position.set(sx * (ROAD_HALF + 1.5), postH + UNIT * 0.6, z0 + L / 2);
+    const rail = new THREE.Mesh(chamferBox(UNIT * 2, BRICK_H, L, BEVEL), plastic(BRICK.yellow));
+    rail.position.set(sx * (ROAD_HALF + UNIT * 2), postPlates * PLATE_H + BRICK_H * 0.5, z0 + L / 2);
     rail.castShadow = true;
     g.add(rail);
   }
 
   // ── 桥墩 ───────────────────────────────────────────────────
-  const pierGeo = brick(4, 4, 1, 0xffffff, { studs: false });
-  const capGeo = brick(5, 5, UNIT * 0.6, 0xffffff);
+  const pierGeo = chamferBox(UNIT * 4, 1, UNIT * 4, BEVEL);
+  const capGeo = part(6, 6, 2, 0xffffff, { studSegments: 10 });
   const piers: { m: THREE.Matrix4; c: number }[] = [];
   const caps: { m: THREE.Matrix4; c: number }[] = [];
   for (let z = z0; z < z0 + L; z += 46) {
     const depth = 52 + rng.range(-8, 12);
     for (const sx of [-1, 1]) {
-      piers.push({ m: trs(sx * 6.2, -depth / 2 - 1.9, z, 1, depth, 1), c: BRICK.grey });
-      caps.push({ m: trs(sx * 6.2, -2.2, z), c: BRICK.darkGrey });
+      piers.push({ m: trs(sx * 6.2, -depth / 2 - 2.4, z, 1, depth, 1), c: BRICK.grey });
+      caps.push({ m: trs(sx * 6.2, -2.4, z), c: BRICK.darkGrey });
     }
   }
   g.add(coloured(pierGeo, mat, piers));
@@ -240,9 +320,12 @@ export function createBrickBridge(length: number, rng: Rng, detail = 1): THREE.G
 /**
  * 积木城市。
  *
- * 写实版按距离分三套模件（近景带退台天线、中景只留女儿墙、远景纯剪影）。
- * 积木版不需要这套：一块带凸点的方块本身就是全部信息，远近只差颜色和大小。
- * 楼是**堆出来的**——每栋两三段，段与段之间收一收，才有积木塔的层次。
+ * 每栋楼是**一摞砖**：楼层之间留得出接缝，顶上收一段带凸点的平台。
+ * 一栋楼只用一个实例（整摞烘成一个几何体再按矩阵摆），所以四百多栋楼
+ * 仍然是几个 draw call。
+ *
+ * 楼层的砖高是固定的（真实比例），楼有多高就摞多少层——不用缩放去凑高度。
+ * 一缩放，凸点和倒角会跟着变形，"这是积木"的信息第一时间就没了。
  */
 export function createBrickCity(length: number, rng: Rng, detail = 1): THREE.Group {
   const g = new THREE.Group();
@@ -250,62 +333,69 @@ export function createBrickCity(length: number, rng: Rng, detail = 1): THREE.Gro
   const z0 = -200;
   const mat = plastic();
 
-  // 只用饱和色。灰和白在雾里会直接褪成背景，一整片楼看着像没上色——
-  // 积木城的看点就是那一排明确的色块。
-  const palette = [BRICK.red, BRICK.blue, BRICK.yellow, BRICK.green, BRICK.orange, BRICK.lime, BRICK.tan, BRICK.brown];
-  const blocks: { m: THREE.Matrix4; c: number }[] = [];
-  const count = Math.round(420 * THREE.MathUtils.clamp(detail, 0.4, 1));
+  // 楼型按**距离**分两档，这是这一关最大的一笔性能预算。
+  //
+  // 一颗凸点是十六段的回转体，一栋带凸点的楼摞下来五千多面；四百栋就是
+  // 两百多万面，比全场角色加起来还多。而三十米开外，一颗凸点在屏幕上
+  // 连一个像素都占不满——那些面全是白花的。
+  //
+  // 所以：近处那一圈楼是真零件（倒角 + 凸点），远处的只留轮廓和颜色。
+  // 玩家看得清的地方一点不省，看不清的地方一点不给。
+  const towers = [
+    towerGeo(4, 4, 9, 2, true),
+    towerGeo(5, 4, 14, 3, true),
+    towerGeo(4, 4, 20, 4, false),
+    towerGeo(6, 5, 6, 1, false),
+    towerGeo(4, 4, 12, 3, false),
+  ];
+  const buckets: { m: THREE.Matrix4; c: number }[][] = towers.map(() => []);
+
+  const palette = [BRICK.red, BRICK.blue, BRICK.yellow, BRICK.green, BRICK.orange,
+    BRICK.lime, BRICK.tan, BRICK.azure, BRICK.brown, BRICK.white];
+  const count = Math.round(440 * THREE.MathUtils.clamp(detail, 0.4, 1));
   for (let i = 0; i < count; i++) {
     const side = rng.next() < 0.5 ? -1 : 1;
     const band = rng.next();
     const dist = 18 + band * 260;
     const x = side * dist + rng.range(-10, 10);
     const z = z0 + rng.next() * L;
-    const w = 8 + rng.next() * (10 + band * 20);
-    const d = 8 + rng.next() * (10 + band * 20);
-    const total = 18 + rng.next() * (26 + band * 150);
-    const base = -46 - rng.range(0, 16);
-    const colour = palette[Math.floor(rng.next() * palette.length)]!;
-    // 一栋楼堆两三段，每往上一段收窄一点
-    const tiers = 2 + Math.floor(rng.next() * 2);
-    let y = base;
-    for (let t = 0; t < tiers; t++) {
-      const hSeg = (total / tiers) * (1 + (t === 0 ? 0.2 : -0.1));
-      const shrink = 1 - t * 0.16;
-      blocks.push({
-        m: trs(x, y + hSeg / 2, z, w * shrink, hSeg, d * shrink, 0, rng.range(-0.2, 0.2), 0),
-        c: colour,
-      });
-      y += hSeg;
-    }
+    // 近处用带凸点的精细件，远处用只有轮廓的简化件
+    const kind = band < 0.16
+      ? (rng.next() < 0.5 ? 0 : 1)
+      : band < 0.55 ? (rng.next() < 0.5 ? 4 : 3) : 2;
+    // 世界尺度上一栋楼只有十几米高，直接摆在雾里会显得矮——整体放大，
+    // 但**等比**放大，凸点和倒角的比例不变
+    const s = 2.2 + band * 3.4 + rng.range(-0.3, 0.5);
+    const y = -46 - rng.range(0, 14);
+    buckets[kind]!.push({
+      m: trs(x, y, z, s, s, s, 0, rng.next() < 0.5 ? 0 : Math.PI / 2, 0),
+      c: palette[Math.floor(rng.next() * palette.length)]!,
+    });
   }
-  // 单位方块 + 一颗大凸点：实例矩阵一缩放，凸点跟着变成"楼顶那个圆台"，
-  // 远看正好是积木塔的顶。给每栋楼真的铺一格一格的凸点是做不到的——
-  // 凸点会跟着非等比缩放一起被拉扁。
-  g.add(coloured(brick(1, 1, 1, 0xffffff), mat, blocks, { receiveShadow: false }));
+  for (let i = 0; i < towers.length; i++) g.add(coloured(towers[i]!, mat, buckets[i]!));
 
-  // ── 窗户：一格一格的自发光小方片 ───────────────────────────
+  // ── 窗户：一格一格的自发光平滑片 ───────────────────────────
   const lit: { m: THREE.Matrix4; c: number }[] = [];
-  const litCount = Math.round(300 * THREE.MathUtils.clamp(detail, 0.4, 1));
+  const litCount = Math.round(420 * THREE.MathUtils.clamp(detail, 0.4, 1));
   for (let i = 0; i < litCount; i++) {
     const side = rng.next() < 0.5 ? -1 : 1;
-    const band = rng.next() * 0.55;
+    const band = rng.next() * 0.6;
     const dist = 18 + band * 260;
-    const x = side * (dist - 0.6) + rng.range(-8, 8);
+    const x = side * (dist - 0.7) + rng.range(-8, 8);
     const z = z0 + rng.next() * L;
-    const y = -40 + rng.next() * 90;
+    const y = -40 + rng.next() * 96;
     lit.push({
-      m: trs(x, y, z, UNIT, UNIT, 0.2, 0, side > 0 ? -Math.PI / 2 : Math.PI / 2, 0),
-      c: rng.next() < 0.25 ? 0x9fe0ff : 0xffd98a,
+      m: trs(x, y, z, UNIT * 1.6, UNIT * 1.2, 0.25, 0, side > 0 ? -Math.PI / 2 : Math.PI / 2, 0),
+      c: rng.next() < 0.25 ? 0xa8e6ff : 0xffe0a0,
     });
   }
   const windowMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: true });
-  g.add(coloured(chamferBox(1, 1, 1, 0.02), windowMat, lit));
+  g.add(coloured(chamferBox(1, 1, 1, 0.06), windowMat, lit));
 
   // 雾的底色，避免俯视时看到虚空
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(1600, 1600),
-    new THREE.MeshBasicMaterial({ color: 0x6d7a6f }),
+    new THREE.MeshBasicMaterial({ color: 0x76857a }),
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, -96, z0 + L / 2);
@@ -314,49 +404,103 @@ export function createBrickCity(length: number, rng: Rng, detail = 1): THREE.Gro
   return g;
 }
 
+/**
+ * 一栋楼：`floors` 层砖，每隔几层收一次台，顶上盖一块带凸点的平台。
+ *
+ * 只有**顶上那一层**保留凸点：楼身的凸点全被上一层砖压住了，真实积木里
+ * 看不见——留着不但不对，还平白多出几万个面。
+ *
+ * @param fine 近景件。false 时不放凸点、也不倒角——远处只读得到轮廓，
+ *             那两样在屏幕上占不满一个像素。
+ */
+function towerGeo(cols: number, rows: number, floors: number, setbacks: number, fine: boolean): THREE.BufferGeometry {
+  const stack: THREE.BufferGeometry[] = [];
+  let c = cols;
+  let r = rows;
+  let y = 0;
+  const every = Math.max(2, Math.floor(floors / (setbacks + 1)));
+  for (let f = 0; f < floors; f++) {
+    if (f > 0 && f % every === 0 && c > 2 && r > 2) {
+      // 收台：楼层往里缩一圈，同时露出下面那层的顶——积木塔的层次就是这么来的
+      stack.push(place(floor(c, r, 1, fine, fine ? 8 : 0), { y: y + PLATE_H / 2 }));
+      y += PLATE_H;
+      c -= 1;
+      r -= 1;
+    }
+    stack.push(place(floor(c, r, 3, false, 0), { y: y + BRICK_H / 2 }));
+    y += BRICK_H;
+  }
+  // 楼顶：一块带凸点的板 + 一小间机房
+  stack.push(place(floor(c, r, 1, fine, 10), { y: y + PLATE_H / 2 }));
+  y += PLATE_H;
+  if (c >= 3) {
+    stack.push(place(floor(2, 2, 3, fine, 10), { y: y + BRICK_H / 2, x: UNIT * 0.5 }));
+  }
+  return merge(stack);
+}
+
+/** 楼的一层。近景件走 part()，远景件退化成一个不倒角的盒子。 */
+function floor(cols: number, rows: number, plates: number, studs: boolean, segments: number): THREE.BufferGeometry {
+  if (studs) return part(cols, rows, plates, 0xffffff, { studSegments: segments });
+  return paint(new THREE.BoxGeometry(cols * UNIT, plates * PLATE_H, rows * UNIT), 0xffffff);
+}
+
 // ── 路肩陈设 ──────────────────────────────────────────────────
 
 /**
- * 积木版的路肩陈设。
+ * 积木版的路肩陈设：拼出来的废车和散落的零件。
  *
- * 写实版那套（废车、沙袋、尸堆、瓦砾）在这里换成"用积木拼的同一批东西"：
- * 车是三块摞起来的方块，沙袋是一小堆棕色砖，瓦砾是散落的碎砖。形不重要，
- * 剪影和颜色对得上就够了——像素化之后能读到的本来就只有这两样。
+ * 车是能认出零件的：底盘板 + 车身砖 + 挡风斜面 + 四个圆砖轮子。
+ * 认得出"这是拿什么零件搭的"，比把车做得像车重要得多。
  */
 export function createBrickProps(length: number, rng: Rng, detail = 1): THREE.Group {
   const g = new THREE.Group();
   const mat = plastic();
-  const items: { m: THREE.Matrix4; c: number }[] = [];
   const cars: { m: THREE.Matrix4; c: number }[] = [];
+  const loose: { m: THREE.Matrix4; c: number }[] = [];
 
-  const n = Math.round((length / 100) * 16 * THREE.MathUtils.clamp(detail, 0.35, 1));
-  const carPalette = [BRICK.red, BRICK.blue, BRICK.white, BRICK.yellow, BRICK.green];
+  const n = Math.round((length / 100) * 18 * THREE.MathUtils.clamp(detail, 0.35, 1));
+  const carPalette = [BRICK.red, BRICK.blue, BRICK.white, BRICK.yellow, BRICK.green, BRICK.orange];
   for (let i = 0; i < n; i++) {
     const side = rng.next() < 0.5 ? -1 : 1;
-    const x = side * rng.range(ROAD_HALF - 2.4, ROAD_HALF + 2.6);
+    const x = side * rng.range(ROAD_HALF - 2.2, ROAD_HALF + 2.4);
     const z = rng.range(-40, length + 40);
-    if (rng.next() < 0.45) {
+    if (rng.next() < 0.5) {
       cars.push({
-        m: trs(x, UNIT * 0.75, z, 1, 1, 1, 0, rng.range(-0.5, 0.5), 0),
+        m: trs(x, 0, z, 1, 1, 1, 0, rng.range(-0.6, 0.6), 0),
         c: carPalette[Math.floor(rng.next() * carPalette.length)]!,
       });
     } else {
-      const s = rng.range(0.6, 1.3);
-      items.push({
-        m: trs(x, UNIT * 0.3 * s, z, s, s, s, 0, rng.range(0, 3.14), 0),
+      loose.push({
+        m: trs(x, PLATE_H * 1.5, z, 1, 1, 1, 0, rng.range(0, 3.14), 0),
         c: rng.next() < 0.5 ? BRICK.brown : BRICK.darkGrey,
       });
     }
   }
 
-  // 废车：底盘 + 车厢 + 车窗，三块积木摞出一个能读的剪影
-  const carGeo = merge([
-    paint(place(chamferBox(UNIT * 2, UNIT * 0.7, UNIT * 4, 0.03), { y: -UNIT * 0.35 }), 0xffffff),
-    paint(place(chamferBox(UNIT * 1.8, UNIT * 0.8, UNIT * 2.2, 0.03), { y: UNIT * 0.4, z: -UNIT * 0.3 }), 0xffffff),
-    paint(place(chamferBox(UNIT * 1.5, UNIT * 0.5, UNIT * 1.6, 0.02), { y: UNIT * 0.95, z: -UNIT * 0.3 }), 0x2a3238),
-  ]);
-  g.add(coloured(carGeo, mat, cars, { castShadow: true }));
-  g.add(coloured(brick(2, 2, UNIT * 0.6, 0xffffff), mat, items, { castShadow: true }));
+  g.add(coloured(carGeo(), mat, cars, { castShadow: true, receiveShadow: true }));
+  g.add(coloured(brick(2, 2, 0xffffff, { studSegments: 10 }), mat, loose, { castShadow: true }));
 
   return g;
+}
+
+/** 一辆拼出来的小车：底盘板 + 车身 + 挡风 + 四个轮子。 */
+function carGeo(): THREE.BufferGeometry {
+  const wheel = lathe([[0, -UNIT * 0.22], [UNIT * 0.34, -UNIT * 0.22], [UNIT * 0.38, -UNIT * 0.16],
+    [UNIT * 0.38, UNIT * 0.16], [UNIT * 0.34, UNIT * 0.22], [0, UNIT * 0.22]], 14);
+  const parts: THREE.BufferGeometry[] = [
+    // 底盘：一块 2×5 的板
+    paint(place(part(2, 5, 1, 0xffffff, { studs: false }), { y: UNIT * 0.42 }), 0x2a3238),
+    // 车身：2×3 的砖，往后坐
+    place(part(2, 3, 3, 0xffffff, { studSegments: 12 }), { y: UNIT * 0.42 + PLATE_H / 2 + BRICK_H / 2, z: -UNIT * 0.6 }),
+    // 挡风：一块斜着放的平滑片
+    paint(place(chamferBox(UNIT * 1.7, PLATE_H, UNIT * 1.3, BEVEL),
+      { y: UNIT * 1.5, z: UNIT * 0.55, rx: -0.9 }), 0x9fd8e8),
+    // 四个轮子
+    ...[[-1, 1], [1, 1], [-1, -1], [1, -1]].map(([sx, sz]) => paint(place(wheel.clone(), {
+      x: sx! * UNIT, y: UNIT * 0.38, z: sz! * UNIT * 1.4, rz: Math.PI / 2,
+    }), 0x1b1f22)),
+  ];
+  wheel.dispose();
+  return merge(parts);
 }
