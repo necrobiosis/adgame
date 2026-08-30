@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ENDLESS_ID } from '../../src/config/levels';
 import { World } from '../../src/sim/World';
 import type { BlockObstacle, SimEvent } from '../../src/sim/types';
-import { AIRSTRIKE, BLOCK, BOSS, BUFF_CAP, FORMATION_MAX_ROWS, ROAD_HALF, SLOT_SPACING_Z, SOLDIER, WEAPON_TIERS, rangeFalloff, type UpgradeId } from '../../src/config/balance';
+import { AIRSTRIKE, BOSS, BUFF_CAP, FORMATION_MAX_ROWS, ROAD_HALF, SLOT_SPACING_Z, SOLDIER, WEAPON_TIERS, rangeFalloff, type UpgradeId } from '../../src/config/balance';
 import { rankFireMul } from '../../src/sim/Combat';
 import { LANE_ORDER, LANE_SIGN, LANE_WIDTH, laneBounds, laneCenterX } from '../../src/sim/lanes';
 import { LEVELS_MAX_UPGRADES, NO_UPGRADES, upgrades as mkUpgrades } from './fixtures';
@@ -570,26 +570,25 @@ describe('人多不再等于无敌', () => {
   });
 });
 
-describe('军械门', () => {
-  /**
-   * 军械门和别的东西不一样：它不在路上，是钉在方阵正前方 34 米那儿的一块
-   * 靶子。别的东西都在往后流，只有它不动。所以测试也不能像撞墙那样"走到
-   * 它跟前"——只能站到它那一排上，一路打过去。
-   */
-  function camp(upgrades: Record<UpgradeId, number>, loadout?: readonly UpgradeId[], troops = 160) {
+describe('军械墙', () => {
+  /** 把方阵直接送到第一关那堵军械墙前面，站在它那一排上。 */
+  function atWall(upgrades: Record<UpgradeId, number>, loadout?: readonly UpgradeId[], troops = 160) {
     const w = new World({ levelId: 1, upgrades, loadout, seed: 3 });
-    const door = w.blocks.find((b) => b.rewardWeapon !== undefined)!;
+    const wall = w.blocks.find((b) => b.rewardWeapon !== undefined)!;
     if (troops > 0) w.squad.addSoldiers(troops);
+    w.squad.z = wall.z - 26;
+    w.squad.x = laneCenterX(wall.lane);
     w.squad.layout();
-    return { w, door };
+    w.enemies.clear();
+    return { w, wall };
   }
 
-  /** 在门那一排上待着打，清掉所有僵尸，只剩人和门。 */
-  function shootDoor(w: World, door: BlockObstacle, seconds: number): SimEvent[] {
+  /** 一路冲到墙那边，清掉僵尸只留人和墙。返回这一段里发生的事件。 */
+  function charge(w: World, wall: BlockObstacle, lane: number | null): SimEvent[] {
     const dt = 1 / 60;
     const log: SimEvent[] = [];
-    for (let t = 0; t < seconds && w.phase === 'running'; t += dt) {
-      w.squad.x = laneCenterX(door.lane);
+    for (let t = 0; t < 20 && w.phase === 'running' && w.squad.z < wall.z + 8; t += dt) {
+      if (lane !== null) w.steer = Math.abs(lane - w.squad.x) > 0.3 ? Math.sign(lane - w.squad.x) : 0;
       w.step(dt);
       log.push(...w.drainEvents());
       w.enemies.clear();
@@ -597,84 +596,66 @@ describe('军械门', () => {
     return log;
   }
 
-  it('别的东西都在动，只有它不动——永远钉在正前方那一排上', () => {
-    const { w, door } = camp(NO_UPGRADES, undefined, 0);
-    const lane = door.lane;
-    const dt = 1 / 60;
-    let moved = 0;
-    for (let t = 0; t < 12 && w.phase === 'running'; t += dt) {
-      w.steer = Math.sin(t * 1.7); // 玩家在三排之间来回窜
-      w.step(dt);
-      w.drainEvents();
-      w.enemies.clear();
-      moved = Math.max(moved, w.squad.z);
-      expect(door.z - w.squad.z, '门应当一直吊在正前方那么远').toBeCloseTo(BLOCK.armory.ahead, 3);
-      expect(door.lane, '门不该换排').toBe(lane);
-    }
-    expect(moved, '方阵得真的往前走了才算数').toBeGreaterThan(20);
+  it('墙跟着路往后走，不会自己钉在方阵前面', () => {
+    // 这一条守的是"军械墙就是一堵普通的墙"：它在赛道上有个固定的位置，
+    // 方阵走过去就是走过去了，不会永远吊在正前方那么远。
+    const { w, wall } = atWall(NO_UPGRADES, undefined, 0);
+    const z0 = wall.z;
+    const gap0 = wall.z - w.squad.z;
+    charge(w, wall, null);
+    expect(wall.z, '墙自己动了').toBe(z0);
+    expect(wall.z - w.squad.z, '方阵没能逼近这堵墙').toBeLessThan(gap0 - 10);
   });
 
-  it('门上印的是一把枪，打穿了就换上它', () => {
-    const { w, door } = camp(LEVELS_MAX_UPGRADES, ['squad', 'damage', 'fireRate', 'cannon']);
-    const want = door.rewardWeapon!;
-    // 手里这把要比门上那把差，才谈得上"换"
+  it('墙上印的是一把枪，在撞上之前打穿了就换上它', () => {
+    const { w, wall } = atWall(LEVELS_MAX_UPGRADES, ['squad', 'damage', 'fireRate', 'cannon']);
+    const want = wall.rewardWeapon!;
+    // 手里这把要比墙上那把差，才谈得上"换"
     expect(w.squad.weaponLevel).toBeLessThan(want);
-    door.hp = door.maxHp = 24000; // 缩短测试时间：真实血量是几十万，打法一样
-    const got = shootDoor(w, door, 30).find((ev) => ev.type === 'weaponPickup');
-    expect(door.alive, '守在门那一排上打了 30 秒还打不穿').toBe(false);
+    const log = charge(w, wall, laneCenterX(wall.lane));
+    expect(wall.alive, '满配打不穿第一关那堵 2400 血的墙').toBe(false);
+    expect(log.some((ev) => ev.type === 'blockSmashed'), '是被撞碎的，不是打穿的').toBe(false);
     expect(w.squad.weaponLevel, '打穿了却没换枪').toBe(want);
-    expect(got, '没有发出换枪事件').toBeTruthy();
+    expect(log.some((ev) => ev.type === 'weaponPickup'), '没有发出换枪事件').toBe(true);
   });
 
-  it('不站在门那一排上就一发也打不到它', () => {
-    const { w, door } = camp(LEVELS_MAX_UPGRADES, ['squad', 'damage', 'fireRate', 'cannon']);
-    door.hp = door.maxHp = 24000;
-    const other = LANE_ORDER.find((l) => l !== door.lane)!;
-    const dt = 1 / 60;
-    for (let t = 0; t < 20 && w.phase === 'running'; t += dt) {
-      w.squad.x = laneCenterX(other);
-      w.step(dt);
-      w.drainEvents();
-      w.enemies.clear();
-    }
-    expect(door.hp, '站在别的排上却把门打掉了血——那就是自瞄').toBe(door.maxHp);
-    expect(door.alive).toBe(true);
-  });
-
-  it('Boss 到了还没打掉，门就没了——什么都不给', () => {
-    const { w, door } = camp(NO_UPGRADES, undefined, 0);
+  it('打不穿硬撞过去：墙上有刺，人死一片，枪也拿不到', () => {
+    // 军械墙和金币墙是同一套规则：撞碎的墙不给奖励。
+    // 不然"硬撞"就成了不用付火力的白嫖，这道选择题直接塌掉。
+    const { w, wall } = atWall(NO_UPGRADES, undefined, 120);
     const before = w.squad.weaponLevel;
-    const dt = 1 / 60;
-    let lost = 0;
-    let picked = 0;
-    let bossCame = false;
-    // 一路狂奔到 Boss 竞技场；裸配这点火力打不穿那扇门
-    for (let t = 0; t < 400 && !bossCame && w.phase === 'running'; t += dt) {
-      w.squad.z += 0.4; // 直接把方阵推到底，不用等它自己走完一整关
-      w.step(dt);
-      for (const ev of w.drainEvents()) {
-        if (ev.type === 'armoryLost') lost++;
-        if (ev.type === 'weaponPickup') picked++;
-        if (ev.type === 'bossSpawn') bossCame = true;
-      }
-      w.enemies.clear();
-    }
-    expect(bossCame, 'Boss 没出场，这个测试就没意义').toBe(true);
-    expect(lost, 'Boss 到了应当发一次"门没了"').toBe(1);
-    expect(picked, '没打穿却白送了一把枪').toBe(0);
-    expect(door.alive, '门应当已经撤走').toBe(false);
-    expect(w.squad.weaponLevel, '没打穿门不该换枪').toBe(before);
-    expect(w.armoryDoor, 'Boss 之后不该还挂着一扇门').toBe(null);
+    expect(wall.rewardWeapon, '这堵墙本来是有枪的').toBeGreaterThan(before);
+    // 把血量拉到这点火力绝对啃不动的地步：这一条要测的是"撞"，不是"打"
+    wall.hp = wall.maxHp = 200000;
+    const n0 = w.squad.soldierCount;
+    const log = charge(w, wall, laneCenterX(wall.lane));
+    expect(wall.alive, '硬撞应当把墙撞碎').toBe(false);
+    expect(log.some((ev) => ev.type === 'blockSmashed'), '没有走撞碎那条路').toBe(true);
+    expect(log.some((ev) => ev.type === 'impaled'), '墙上的刺没扎人').toBe(true);
+    expect(w.squad.soldierCount, '撞墙应当拿命填').toBeLessThan(n0);
+    expect(log.some((ev) => ev.type === 'weaponPickup'), '撞碎的墙不该给枪').toBe(false);
+    expect(w.squad.weaponLevel, '撞碎的墙不该给枪').toBe(before);
   });
 
-  it('门上的枪比手里的差就不会把人降级', () => {
-    const { w, door } = camp(LEVELS_MAX_UPGRADES, ['squad', 'damage', 'fireRate', 'weapon']);
-    // 满级制式装备起手就比第一关门上那把好
-    expect(w.squad.weaponLevel).toBeGreaterThan(door.rewardWeapon!);
+  it('换一排走：不扎人，也拿不到枪', () => {
+    const { w, wall } = atWall(NO_UPGRADES, undefined, 120);
     const before = w.squad.weaponLevel;
-    door.hp = door.maxHp = 24000;
-    shootDoor(w, door, 30);
-    expect(door.alive).toBe(false);
-    expect(w.squad.weaponLevel, '打穿门反而把枪换差了').toBe(before);
+    const other = LANE_ORDER.find((l) => l !== wall.lane)!;
+    const n0 = w.squad.soldierCount;
+    const log = charge(w, wall, laneCenterX(other));
+    expect(wall.alive, '走别的排不该把墙碰碎').toBe(true);
+    expect(log.some((ev) => ev.type === 'impaled'), '走别的排还被扎了').toBe(false);
+    expect(w.squad.soldierCount, '走别的排不该死人').toBe(n0);
+    expect(w.squad.weaponLevel, '走别的排不该白拿枪').toBe(before);
+  });
+
+  it('墙上的枪比手里的差就不会把人降级', () => {
+    const { w, wall } = atWall(LEVELS_MAX_UPGRADES, ['squad', 'damage', 'fireRate', 'weapon']);
+    // 满级制式装备起手就比第一关墙上那把好
+    expect(w.squad.weaponLevel).toBeGreaterThan(wall.rewardWeapon!);
+    const before = w.squad.weaponLevel;
+    charge(w, wall, laneCenterX(wall.lane));
+    expect(wall.alive).toBe(false);
+    expect(w.squad.weaponLevel, '打穿墙反而把枪换差了').toBe(before);
   });
 });

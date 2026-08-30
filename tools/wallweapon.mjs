@@ -15,26 +15,30 @@ await page.waitForTimeout(1600);
 await page.evaluate(() => document.querySelector('[data-level="1"]').click());
 await page.waitForTimeout(600);
 
-const door = () => page.evaluate(() => {
+const info = () => page.evaluate(() => {
   const w = window.__game.world;
-  const d = w.armoryDoor;
-  return d ? { z: +(d.z - w.squad.z).toFixed(2), lane: d.lane, hp: Math.round(d.hp), max: d.maxHp, sq: +w.squad.z.toFixed(1), sx: +w.squad.x.toFixed(2) } : null;
+  const b = w.blocks.find((x) => x.rewardWeapon !== undefined) ?? w.blocks.find((x) => x.alive);
+  return b ? { gap: +(b.z - w.squad.z).toFixed(1), lane: b.lane, hp: Math.round(b.hp), alive: b.alive, rw: b.rewardWeapon } : null;
 });
-console.log('t0', JSON.stringify(await door()));
-await page.evaluate(() => window.__game.fastForward(6));
-await page.waitForTimeout(400);
-await page.screenshot({ path: `${SHOTS}/door-far.png`, timeout: 120000 });
-console.log('t6', JSON.stringify(await door()));
+console.log('t0', JSON.stringify(await info()));
 
-// park the squad in the door lane (via the real input target) and shoot it
+// 走到军械墙那一排上，冲到它跟前再截图
 await page.evaluate(() => {
   const g = window.__game;
-  const d = g.world.armoryDoor;
-  if (d) g.input.targetX = (d.x0 + d.x1) / 2;
+  const b = g.world.blocks.find((x) => x.rewardWeapon !== undefined);
+  if (b) g.input.targetX = (b.x0 + b.x1) / 2;
 });
-for (let i = 0; i < 12; i++) await page.evaluate(() => window.__game.fastForward(1.5));
+for (let i = 0; i < 60; i++) {
+  const g = await page.evaluate(() => {
+    const w = window.__game.world;
+    const b = w.blocks.find((x) => x.rewardWeapon !== undefined);
+    return b ? b.z - w.squad.z : -1;
+  });
+  if (g < 0 || g < 30) break;
+  await page.evaluate(() => window.__game.fastForward(0.3));
+}
 await page.waitForTimeout(400);
-await page.screenshot({ path: `${SHOTS}/door-shooting.png`, timeout: 120000 });
-console.log('after camping', JSON.stringify(await door()));
+await page.screenshot({ path: `${SHOTS}/wall-approach.png`, timeout: 120000 });
+console.log('approach', JSON.stringify(await info()));
 console.log('ERRORS', errs);
 await browser.close();

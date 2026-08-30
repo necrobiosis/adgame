@@ -17,23 +17,18 @@ export class BlockMesh {
   private readonly bodyMat: THREE.MeshStandardMaterial;
   private readonly baseEmissive: number;
   private readonly numberTex: THREE.CanvasTexture;
-  private readonly labelMat: THREE.MeshBasicMaterial;
   private readonly ctx: CanvasRenderingContext2D;
   private shownKey = '';
-  /** 军械门要跟着方阵走，得知道自己出生时在哪儿，才能算偏移 */
-  private readonly armory: boolean;
-  private readonly baseZ: number;
-  private readonly baseCx: number;
-  private bob = 0;
 
   constructor(readonly block: BlockObstacle) {
     const w = block.x1 - block.x0;
     const h = block.tall ? BLOCK.wallHeight : BLOCK.height;
     const d = 2.8;
-    // 三种门要在三十米外就分得开：
-    //  · 金币墙 = 金块 + 满身倒刺（硬撞要拿命填）
-    //  · 军械门 = 冷色装甲闸门 + 门上一把发光的枪（没刺，打不开就被挤开）
-    //  · 纯挡路 = 朴素钢板
+    // 三种墙要在三十米外就分得开。规则是同一套——都长着倒刺、都跟着路
+    // 往后走、都只占一排——区别只在墙上写着什么：
+    //  · 金币墙 = 金块，打穿给钱
+    //  · 军械墙 = 冷色装甲板 + 一把发光的枪，打穿直接换上那把枪
+    //  · 纯挡路 = 朴素钢板，什么都不给
     const armory = block.rewardWeapon !== undefined;
     const gold = !armory && block.bonus > 0;
     const cx = (block.x0 + block.x1) / 2;
@@ -44,7 +39,7 @@ export class BlockMesh {
       : { ...PRESET.bareSteel(), color: armory ? 0x8fb6d8 : 0xffffff, metalness: armory ? 0.75 : 0.55, roughness: armory ? 0.34 : 0.46 });
     this.bodyMat.emissive = new THREE.Color(this.baseEmissive);
 
-    const body = new THREE.Mesh(buildArmoredBlock(w, h, d, gold, !armory), this.bodyMat);
+    const body = new THREE.Mesh(buildArmoredBlock(w, h, d, gold, armory), this.bodyMat);
     body.position.set(cx, h / 2, block.z);
     body.castShadow = true;
     body.receiveShadow = true;
@@ -61,45 +56,34 @@ export class BlockMesh {
     // -d/2-0.03，它的前表面比原来的 label 位置还靠近镜头 0.05——数字被自己
     // 那块底板挡在后面，画布上明明画好了，屏幕上一个字都看不见。
     const labelZ = block.z - d / 2 - 0.14;
-    // 军械门的画面主角就是门上那把枪，牌子要占掉大半扇门；
+    // 军械墙的画面主角就是墙上那把枪，牌子要占掉大半堵墙；
     // 普通墙上只有一个血量数字，小一点更耐看
     const labelW = armory ? Math.min(w * 0.9, 8.6) : Math.min(w * 0.62, 6.2);
-    this.labelMat = new THREE.MeshBasicMaterial({ map: this.numberTex, transparent: true, depthWrite: false, toneMapped: false });
     const label = new THREE.Mesh(
       new THREE.PlaneGeometry(labelW, labelW * (armory ? 0.58 : 0.5)),
-      this.labelMat,
+      new THREE.MeshBasicMaterial({ map: this.numberTex, transparent: true, depthWrite: false, toneMapped: false }),
     );
     label.position.set(cx, h * 0.58, labelZ);
     label.rotation.y = Math.PI;
     label.renderOrder = 4;
     this.group.add(label);
 
-    this.armory = armory;
-    this.baseZ = block.z;
-    this.baseCx = cx;
-    // 军械门不落地：它是吊在方阵前面的一块靶子，不是路上的障碍。
-    // 悬空一点点，路面细节从它下面流过去，"别的都在动它不动"才立得住。
-    if (armory) this.group.position.y = 0.45;
-
-    this.shownKey = this.armory ? `${formatHp(Math.ceil(block.hp))}|220` : formatHp(Math.ceil(block.hp));
+    this.shownKey = armory ? `${formatHp(Math.ceil(block.hp))}|220` : formatHp(Math.ceil(block.hp));
     this.redraw(block.hp);
   }
 
-  /**
-   * @param veil 军械门专用：别的东西从它那一层穿过去的时候把它淡掉，
-   *             不然它会挡住岔路口。普通墙不受影响。
-   */
-  update(veil = 1): void {
+  update(): void {
     const b = this.block;
     if (!b.alive) {
       this.group.visible = false;
       return;
     }
     const v = Math.max(0, Math.ceil(b.hp));
-    // 军械门有几十万血，formatHp 只到 "350K" 这一档——光比数字的话
-    // 打上千点伤害牌面都不变，玩家会以为自己没打动它。所以再拿血条的
-    // 像素长度一起做键：数字没变但血条掉了一格，也要重画。
-    const key = this.armory ? `${formatHp(v)}|${Math.round((v / b.maxHp) * 220)}` : formatHp(v);
+    // 军械墙的牌面上有血条，数字没变但血条掉了一格也要重画——
+    // formatHp 只精确到 "18K" 那一档，光比数字的话血条会一格一格地跳。
+    const key = this.block.rewardWeapon !== undefined
+      ? `${formatHp(v)}|${Math.round((v / b.maxHp) * 220)}`
+      : formatHp(v);
     if (key !== this.shownKey) {
       this.shownKey = key;
       this.redraw(v);
@@ -108,17 +92,6 @@ export class BlockMesh {
     // 否则整块会烧成一团白光、把泛光也带炸。
     const f = b.flash > 0 ? b.flash / 0.1 : 0;
     this.bodyMat.emissive.setHex(this.baseEmissive).addScalar(f * 0.1);
-    if (this.armory) {
-      // 门每帧都被重新钉到方阵正前方，模型得跟着挪——否则它会留在出生点，
-      // 和 sim 里那个受击判定分家
-      this.bob += 1 / 60;
-      const cx = (b.x0 + b.x1) / 2;
-      this.group.position.set(cx - this.baseCx, 0.45 + Math.sin(this.bob * 1.6) * 0.12, b.z - this.baseZ);
-      const a = Math.max(0, Math.min(1, veil));
-      this.bodyMat.transparent = a < 0.999;
-      this.bodyMat.opacity = a;
-      this.labelMat.opacity = a;
-    }
   }
 
   private redraw(hp: number): void {
@@ -143,8 +116,8 @@ export class BlockMesh {
       return;
     }
 
-    // 军械门：门上印的是枪，不是数字。玩家在几十米外要读到的第一件事是
-    // "那扇门上有把好枪"，血量只是次要信息，所以枪的图案占大头、数字缩到下面。
+    // 军械墙：墙上印的是枪，不是数字。玩家在几十米外要读到的第一件事是
+    // "那堵墙上有把好枪"，血量只是次要信息，所以枪的图案占大头、数字缩到下面。
     const tier = WEAPON_TIERS[Math.min(reward, WEAPON_TIERS.length - 1)]!;
     drawWeaponGlyph(ctx, w / 2, h * 0.42, w * 0.78, reward, tier.tracer);
     ctx.font = `900 46px system-ui,-apple-system,"PingFang SC",sans-serif`;
@@ -153,7 +126,7 @@ export class BlockMesh {
     ctx.strokeText(`${tier.name}  ${text}`, w / 2, h * 0.86);
     ctx.fillStyle = '#ffe9b8';
     ctx.fillText(`${tier.name}  ${text}`, w / 2, h * 0.86);
-    // 血条：这扇门要打一整关，数字那一档太粗，得有个看得见在动的东西
+    // 血条：数字只精确到 "18K" 那一档，冲刺途中光看数字读不出还剩多少
     const frac = Math.max(0, Math.min(1, this.block.maxHp > 0 ? hp / this.block.maxHp : 0));
     const bw = w * 0.72;
     const bx = (w - bw) / 2;
@@ -174,8 +147,8 @@ export class BlockMesh {
 function buildArmoredBlock(
   w: number, h: number, d: number,
   gold: boolean,
-  /** 长不长倒刺。军械门不长——它不扎人，只是一扇打不开就进不去的门。 */
-  spiked: boolean,
+  /** 军械墙：正面那块铭牌要占掉大半堵墙，枪的图案才看得清。 */
+  armory: boolean,
 ): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const base = gold ? 0xd9a326 : 0x9aa2ac;
@@ -208,63 +181,61 @@ function buildArmoredBlock(
   }
 
   // 正面的铭牌凹槽：大数字就贴在这块凹进去的板上
-  // 军械门（没刺的那种）上的凹槽要大：门上那把枪是它唯一要讲的事
-  const plateW = spiked ? Math.min(w * 0.62, 6) : Math.min(w * 0.9, 8.4);
-  add(place(plate(plateW, h * (spiked ? 0.4 : 0.52), 0.1, { corner: 0.12 }), { y: h * 0.08, z: -d / 2 - 0.03 }), trim);
+  // 军械墙上的凹槽要大：墙上那把枪是它唯一要讲的事
+  const plateW = armory ? Math.min(w * 0.9, 8.4) : Math.min(w * 0.62, 6);
+  add(place(plate(plateW, h * (armory ? 0.52 : 0.4), 0.1, { corner: 0.12 }), { y: h * 0.08, z: -d / 2 - 0.03 }), trim);
 
   // 底裙
   add(place(chamferBox(w + 0.16, 0.34, d + 0.16, 0.07), { y: -h / 2 + 0.1 }), trim);
 
-  if (spiked) {
-    // ── 倒刺 ────────────────────────────────────────────────────
-    // 撞上这堵墙的人是被这排刺串死的，所以刺必须真的长在朝着玩家的那一面上。
-    //
-    // 但镜头几乎是顺着 z 轴正对着墙看的，正面那些刺投影下来只剩一个个小圆点，
-    // 光靠它们读不出"扎人"。真正撑起"这堵墙有刺"的是**轮廓**：顶边一排朝前
-    // 上方翘起的长刺（衬在天空上）和两侧竖边朝外的刺（衬在路面上）。
-    // 正面的那层照做，负责近距离和撞上去那一瞬间的观感。
-    const spikeLen = Math.min(1.35, d * 0.55);
-    const spike = (r0: number, len: number) => lathe([
-      [r0, 0], [r0 * 0.78, len * 0.3], [r0 * 0.4, len * 0.68], [0.005, len],
-    ], 6);
+  // ── 倒刺 ────────────────────────────────────────────────────
+  // 撞上这堵墙的人是被这排刺串死的，所以刺必须真的长在朝着玩家的那一面上。
+  //
+  // 但镜头几乎是顺着 z 轴正对着墙看的，正面那些刺投影下来只剩一个个小圆点，
+  // 光靠它们读不出"扎人"。真正撑起"这堵墙有刺"的是**轮廓**：顶边一排朝前
+  // 上方翘起的长刺（衬在天空上）和两侧竖边朝外的刺（衬在路面上）。
+  // 正面的那层照做，负责近距离和撞上去那一瞬间的观感。
+  const spikeLen = Math.min(1.35, d * 0.55);
+  const spike = (r0: number, len: number) => lathe([
+    [r0, 0], [r0 * 0.78, len * 0.3], [r0 * 0.4, len * 0.68], [0.005, len],
+  ], 6);
 
-    // 正面：交错排布的钉板，铭牌那一圈留空
-    const cols = Math.max(3, Math.round(w / 1.15));
-    const rows = Math.max(2, Math.round(h / 1.7));
-    const plateTop = h * 0.08 + h * 0.2;
-    const plateBottom = h * 0.08 - h * 0.2;
-    for (let r = 0; r < rows; r++) {
-      const y = -h / 2 + ((r + 0.5) / rows) * h;
-      for (let c = 0; c < cols; c++) {
-        const x = -w / 2 + ((c + 0.5) / cols) * w;
-        if (y > plateBottom && y < plateTop && Math.abs(x) < plateW / 2 + 0.2) continue;
-        const jx = (r % 2) * (w / cols) * 0.5;
-        const px = Math.max(-w / 2 + 0.2, Math.min(w / 2 - 0.2, x + jx));
-        // rx = -90°：车削件沿 +Y 长出来，绕 X 负转九十度才把尖头指到 -Z，
-        // 也就是玩家那一侧。转 +90° 的话刺全部扎进墙里，一根都看不见。
-        add(place(spike(0.24, spikeLen), { x: px, y, z: -d / 2 + 0.06, rx: -Math.PI / 2 }), rivet);
-      }
+  // 正面：交错排布的钉板，铭牌那一圈留空
+  const cols = Math.max(3, Math.round(w / 1.15));
+  const rows = Math.max(2, Math.round(h / 1.7));
+  const plateTop = h * 0.08 + h * 0.2;
+  const plateBottom = h * 0.08 - h * 0.2;
+  for (let r = 0; r < rows; r++) {
+    const y = -h / 2 + ((r + 0.5) / rows) * h;
+    for (let c = 0; c < cols; c++) {
+      const x = -w / 2 + ((c + 0.5) / cols) * w;
+      if (y > plateBottom && y < plateTop && Math.abs(x) < plateW / 2 + 0.2) continue;
+      const jx = (r % 2) * (w / cols) * 0.5;
+      const px = Math.max(-w / 2 + 0.2, Math.min(w / 2 - 0.2, x + jx));
+      // rx = -90°：车削件沿 +Y 长出来，绕 X 负转九十度才把尖头指到 -Z，
+      // 也就是玩家那一侧。转 +90° 的话刺全部扎进墙里，一根都看不见。
+      add(place(spike(0.24, spikeLen), { x: px, y, z: -d / 2 + 0.06, rx: -Math.PI / 2 }), rivet);
     }
+  }
 
-    // 顶边：一排朝前上方翘起的长刺。这一排是衬在天空上的，
-    // 也是玩家在三十米外唯一真正读得到"有刺"的东西
-    const topN = Math.max(4, Math.round(w / 0.95));
-    for (let i = 0; i < topN; i++) {
-      const x = -w / 2 + ((i + 0.5) / topN) * w;
-      add(place(spike(0.2, spikeLen * 1.5), {
-        x, y: h / 2 - 0.1, z: -d / 2 + 0.35, rx: -1.05,
+  // 顶边：一排朝前上方翘起的长刺。这一排是衬在天空上的，
+  // 也是玩家在三十米外唯一真正读得到"有刺"的东西
+  const topN = Math.max(4, Math.round(w / 0.95));
+  for (let i = 0; i < topN; i++) {
+    const x = -w / 2 + ((i + 0.5) / topN) * w;
+    add(place(spike(0.2, spikeLen * 1.5), {
+      x, y: h / 2 - 0.1, z: -d / 2 + 0.35, rx: -1.05,
+    }), rivet);
+  }
+
+  // 两侧竖边：朝外斜出去的刺，衬在路面上，把轮廓再撑宽一圈
+  const sideN = Math.max(2, Math.round(h / 1.5));
+  for (const sx of [-1, 1]) {
+    for (let i = 0; i < sideN; i++) {
+      const y = -h / 2 + ((i + 0.5) / sideN) * h;
+      add(place(spike(0.18, spikeLen * 1.2), {
+        x: sx * (w / 2 - 0.05), y, z: -d / 4, rz: sx * Math.PI / 2,
       }), rivet);
-    }
-
-    // 两侧竖边：朝外斜出去的刺，衬在路面上，把轮廓再撑宽一圈
-    const sideN = Math.max(2, Math.round(h / 1.5));
-    for (const sx of [-1, 1]) {
-      for (let i = 0; i < sideN; i++) {
-        const y = -h / 2 + ((i + 0.5) / sideN) * h;
-        add(place(spike(0.18, spikeLen * 1.2), {
-          x: sx * (w / 2 - 0.05), y, z: -d / 4, rz: sx * Math.PI / 2,
-        }), rivet);
-      }
     }
   }
 

@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  BLOCK,
   ENEMY_STATS,
   type BossKind,
   MAX_RENDERED_SOLDIERS,
@@ -651,15 +650,7 @@ export class GameView {
       const gw = this.gateWalls.find((w) => w.id === gate.id);
       if (gw) gw.wall.fade(Math.pow(0.06, dt));
     }
-    // 军械门吊在方阵正前方 34 米，岔路口和别的墙迟早会从它那一层穿过去。
-    // 让门在这一两秒里淡下去——那一刻玩家该读的是岔路，不是门。
-    let doorVeil = 1;
-    for (const g of world.gates) {
-      if (g.taken) continue;
-      const d = Math.abs(g.z - (world.squad.z + BLOCK.armory.ahead));
-      if (d < 14) doorVeil = Math.min(doorVeil, 0.18 + (d / 14) * 0.82);
-    }
-    for (const b of this.blockMeshes) b.update(doorVeil);
+    for (const b of this.blockMeshes) b.update();
 
     // 每帧重置小事件的抖动配额
     this.shakeBudget = 0.11;
@@ -1165,17 +1156,6 @@ export class GameView {
           this.flashes.flash(ev.x!, 2.6, ev.z!, 0xffd45a, 260, 0.4);
           this.gold.burst(ev.x!, 1.6, ev.z!, 16);
           this.camera.punch(0.3);
-          break;
-        }
-        case 'armoryLost': {
-          // Boss 一到，没打掉的门就撤了。要让玩家明确知道"这次机会没了"——
-          // 不是爆炸（那是打穿），是灰扑扑地塌下去 + 一行字。
-          this.floats.push({ text: '军械门撤离', color: '#8d97a3', x: ev.x!, y: 4.0, z: ev.z! });
-          this.smoke.burst(ev.x!, ev.y!, ev.z!, {
-            count: 16, color: 0x6d7580, color2: 0x2a2e33, speed: [1.5, 5], size: [1.2, 2.6],
-            life: [0.7, 1.4], grow: 2.6, drag: 2, lift: 1.6, fadeIn: 0.12,
-          });
-          this.gibs.burst(ev.x!, ev.y!, ev.z!, 8);
           break;
         }
         case 'blockSmashed': {

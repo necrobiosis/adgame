@@ -91,8 +91,8 @@ export type Beat =
       /** 高墙：视觉上明显更高。 */
       readonly tall?: boolean;
       /**
-       * 军械门：门上印着这把武器（WEAPON_TIERS 下标），打穿了就换上它。
-       * 带这个字段的门不长倒刺——它不扎人，只是打不开就进不去。
+       * 军械墙：墙上印着这把武器（WEAPON_TIERS 下标），打穿了就换上它。
+       * 规则和金币墙完全一样，只是奖励从金币换成了枪。
        */
       readonly weapon?: number;
     }
@@ -165,9 +165,11 @@ const LEVEL_1: LevelDef = {
       right: { gate: { type: 'weapon', value: 1 }, wave: elite([{ kind: 'screamer', count: 3 }, { kind: 'walker', count: 30 }]), hint: '精英' },
     },
     { t: 'run', len: 75 },
-    // 军械门：门上印着一把冲锋枪。在撞上它之前打穿，枪就归你；
-    // 打不开就被挤到旁边那一排，什么都没有。第一关就把这条规则教掉。
-    { t: 'block', hp: 40000, lane: 'left', weapon: 2, tall: true },
+    // 军械墙：墙上印着一把冲锋枪。规则和金币墙一模一样——只占一排、
+    // 长着倒刺、跟着路往后走。在撞上它之前打穿，枪就归你；打不穿就只能
+    // 换一排走（什么都没有）或者硬闯（拿命换路，还是什么都没有）。
+    // 第一关就把这条规则教掉，所以血量给得比后面几关的金币墙还软。
+    { t: 'block', hp: 2400, lane: 'left', weapon: 2, tall: true },
     { t: 'run', len: 44 },
     { t: 'choice' },
     { t: 'run', len: 73 },
@@ -196,9 +198,9 @@ const LEVEL_2: LevelDef = {
     { t: 'run', len: 38 },
     { t: 'choice' },
     { t: 'run', len: 73 },
-    // 军械门：走到它那一排上，在撞上之前打穿就换一把新枪；
-    // 打不开就被挤到旁边那一排去——赌的是"我的火力够不够"。
-    { t: 'block', hp: 75000, lane: 'right', weapon: 3, tall: true },
+    // 军械墙：走到它那一排上，在撞上之前打穿就换一把新枪；
+    // 打不穿就得换排（什么都没有）或者硬闯（拿命换路）——赌的是火力够不够。
+    { t: 'block', hp: 7500, lane: 'right', weapon: 3, tall: true },
     { t: 'run', len: 16 },
     { t: 'midboss', hp: 5500, scale: 1.08, name: '疫化魁首' },
     { t: 'choice' },
@@ -225,9 +227,9 @@ const LEVEL_3: LevelDef = {
     { t: 'run', len: 35 },
     { t: 'choice' },
     { t: 'run', len: 67 },
-    // 军械门：走到它那一排上，在撞上之前打穿就换一把新枪；
-    // 打不开就被挤到旁边那一排去——赌的是"我的火力够不够"。
-    { t: 'block', hp: 125000, lane: 'right', weapon: 4, tall: true },
+    // 军械墙：走到它那一排上，在撞上之前打穿就换一把新枪；
+    // 打不穿就得换排（什么都没有）或者硬闯（拿命换路）——赌的是火力够不够。
+    { t: 'block', hp: 18000, lane: 'right', weapon: 4, tall: true },
     { t: 'run', len: 32 },
     { t: 'midboss', hp: 9500, scale: 1.15, name: '尸潮领班' },
     { t: 'choice' },
@@ -254,9 +256,9 @@ const LEVEL_4: LevelDef = {
     { t: 'run', len: 32 },
     { t: 'choice' },
     { t: 'run', len: 48 },
-    // 军械门：走到它那一排上，在撞上之前打穿就换一把新枪；
-    // 打不开就被挤到旁边那一排去——赌的是"我的火力够不够"。
-    { t: 'block', hp: 225000, lane: 'left', weapon: 5, tall: true },
+    // 军械墙：走到它那一排上，在撞上之前打穿就换一把新枪；
+    // 打不穿就得换排（什么都没有）或者硬闯（拿命换路）——赌的是火力够不够。
+    { t: 'block', hp: 48000, lane: 'left', weapon: 5, tall: true },
     { t: 'run', len: 16 },
     { t: 'midboss', hp: 15000, scale: 1.25, name: '赤红囚徒' },
     { t: 'choice' },
@@ -283,11 +285,11 @@ const LEVEL_5: LevelDef = {
     { t: 'run', len: 29 },
     { t: 'choice' },
     { t: 'run', len: 58 },
-    // 军械门：走到它那一排上，在撞上之前打穿就换一把新枪；
-    // 打不开就被挤到旁边那一排去——赌的是"我的火力够不够"。
+    // 军械墙：走到它那一排上，在撞上之前打穿就换一把新枪；
+    // 打不穿就得换排（什么都没有）或者硬闯（拿命换路）——赌的是火力够不够。
     // 最后一扇门上印的是湮灭者。九万血——满配也未必打得开，
     // 这是全场最贵的一次赌。
-    { t: 'block', hp: 375000, lane: 'left', weapon: 7, tall: true },
+    { t: 'block', hp: 90000, lane: 'left', weapon: 7, tall: true },
     { t: 'run', len: 29 },
     { t: 'midboss', hp: 24000, scale: 1.35, name: '深渊先驱' },
     { t: 'choice' },

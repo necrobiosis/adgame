@@ -319,23 +319,9 @@ export class World {
   }
 
   /** 当前挡在前面的方块（渲染层与战斗层共用）。 */
-  /**
-   * 军械门：不在赛道上，而是一直吊在方阵正前方。
-   *
-   * 和 activeBlock（真正立在路上的那些方块）分开：它永远走不到，也永远不会
-   * 被撞上，所以既不参与撞墙判定，也不该被 activeBlock 挡住后面那堵金币墙。
-   */
-  get armoryDoor(): BlockObstacle | null {
-    for (const b of this.blocks) {
-      if (b.alive && b.rewardWeapon !== undefined) return b;
-    }
-    return null;
-  }
-
   get activeBlock(): BlockObstacle | null {
     let best: BlockObstacle | null = null;
     for (const b of this.blocks) {
-      if (b.rewardWeapon !== undefined) continue; // 军械门不在路上，见 armoryDoor
       if (!b.alive) continue;
       if (b.z < this.squad.z - 4) continue;
       if (!best || b.z < best.z) best = b;
@@ -375,6 +361,10 @@ export class World {
       if (this.squad.z >= blk.z + 0.6) {
         blk.alive = false;
         blk.flash = 0.2;
+        // 撞碎的墙不给奖励——枪和金币一样，只有**打穿**才算数。
+        // 不清掉的话 claimWeaponDoors 会把墙上那把枪也发下去，
+        // 于是"硬撞"变成不用付火力的白嫖，整道选择题就塌了。
+        blk.rewardWeapon = undefined;
         out.push({ type: 'blockSmashed', x: (blk.x0 + blk.x1) / 2, y: 1.6, z: blk.z });
       }
     }
@@ -410,13 +400,6 @@ export class World {
     // "触发 Boss"：进度条瞬间满、bossArenaTargetZ 变成负数，方阵直接被钉死
     if (!this.level.endless && !this.bossTriggered && this.squad.z >= this.arenaZ - BOSS_TRIGGER_AHEAD) {
       this.bossTriggered = true;
-      // Boss 一到，没打掉的军械门就没了——这道选择题的截止时间就是这里
-      const missed = this.armoryDoor;
-      if (missed) {
-        missed.rewardWeapon = undefined;
-        missed.alive = false;
-        out.push({ type: 'armoryLost', x: (missed.x0 + missed.x1) / 2, y: 2.2, z: missed.z });
-      }
       this.enemies.hpScale = this.level.enemyHpScale;
       const beat = this.level.beats.find((b) => b.t === 'boss');
       if (beat && beat.t === 'boss') {
@@ -424,15 +407,6 @@ export class World {
         if (this.boss.previewing) this.boss.awaken(this.arenaZ, beat.hp, out);
         else this.boss.spawn(this.enemies, this.arenaZ, beat.hp, beat.scale, beat.name, beat.kind, out);
       }
-    }
-
-    // 军械门：一直吊在方阵正前方，永远走不到。别的东西都在往后流，只有它不动。
-    const door = this.armoryDoor;
-    if (door) {
-      const [dx0, dx1] = laneBounds(door.lane);
-      door.x0 = dx0;
-      door.x1 = dx1;
-      door.z = this.squad.z + BLOCK.armory.ahead;
     }
 
     // 预览态的 Boss：一直吊在方阵正前方那么远的地方慢慢走，直到竞技场为止。
@@ -451,7 +425,7 @@ export class World {
     this.enemies.damageScale = this.currentDamageScale();
     this.boss.update(dt, this.squad, this.enemies, out);
     this.midBoss.update(dt, this.squad, out);
-    const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, this.armoryDoor, out);
+    const gold = this.combat.update(dt, this.squad, this.enemies, this.activeBlock, out);
     this.enemies.update(dt, this.squad, this.barrier, out);
 
     for (const ev of out) {
@@ -485,7 +459,7 @@ export class World {
   }
 
   /**
-   * 军械门打穿之后把枪发下去。
+   * 军械墙打穿之后把枪发下去。
    *
    * 只升不降：门上印的枪比手里的差就只当普通奖励墙（还是给钱），
    * 不会因为打穿了一扇门反而换回一把烂枪。

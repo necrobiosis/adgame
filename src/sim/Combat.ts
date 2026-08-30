@@ -26,8 +26,6 @@ export class Combat {
     squad: Squad,
     pool: EnemyPool,
     block: BlockObstacle | null,
-    /** 吊在正前方的军械门。它不在路上，所以不吃"必须凑近才打得动"那条限制。 */
-    armory: BlockObstacle | null,
     out: SimEvent[],
   ): number {
     let goldEarned = 0;
@@ -48,17 +46,13 @@ export class Combat {
     const cannonTargets = this.cannonPool;
 
     // 挡路的方块：装甲厚，必须凑到跟前才打得动
-    const wallTargetable =
+    const blockTargetable =
       block !== null &&
       block.alive &&
       block.z > squad.z - 2 &&
       block.z - squad.z < BLOCK.engageRange &&
       obstructs(block, squad);
-    // 军械门：永远吊在前方三十几米，凑不近也不用凑——射程本来就是无限的，
-    // 唯一的条件是**你得站在它那一排**。这才是"有空就去啃两口"成立的前提。
-    const armoryTargetable = armory !== null && armory.alive && obstructs(armory, squad);
-    const wallTarget = wallTargetable ? block : armoryTargetable ? armory : null;
-    const blockTargetable = wallTarget !== null;
+    const wallTarget = blockTargetable ? block : null;
 
     // 有威胁逼近时留一部分火力回防
     let closeThreats = 0;
