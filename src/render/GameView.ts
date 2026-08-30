@@ -42,6 +42,9 @@ import { Tracers } from './fx/Tracers';
 import { BlockMesh } from './hud3d/BlockMesh';
 import { GateWall } from './hud3d/GateWall';
 import { HealthBarBatch } from './hud3d/HealthBarBatch';
+import {
+  minifigBoss, minifigMonster, minifigRunner, minifigSoldier, minifigZombie,
+} from './units/MinifigGeometry';
 import { CrowdBatch } from './units/CrowdRenderer';
 import { PRESET, industrial } from './mat/pbr';
 import { ensureSurf } from './mat/triplanar';
@@ -210,6 +213,14 @@ export class GameView {
   private soldierMatSet!: CrowdMaterialSet;
   /** 当前士兵批次是照哪个武器等级建的模——和 world.squad.weaponLevel 对不上时触发重建。 */
   private soldierWeaponTier = 0;
+  /**
+   * 当前这批角色是不是小人仔。
+   *
+   * 积木关和写实关用的是两套完全不同的模型，而角色批次是在构造函数里一次性
+   * 建好的（换画质才重建）。切关时要是风格变了，这一整套必须跟着重建——
+   * 否则积木城里会走进来一队写实的人。
+   */
+  private brickStyle = false;
   /** 每帧重建的"最近 N 个敌人"缓冲。 */
   private readonly visible: Enemy[] = [];
   /** syncSquad() 每帧重建的候选士兵缓冲，避免每帧新分配数组。 */
@@ -308,7 +319,20 @@ export class GameView {
       lengthDetail: this.r.quality.lengthDetail,
       accessory: this.r.quality.accessory,
     };
-    const geos: Record<string, (q: BuildQuality) => THREE.BufferGeometry> = {
+    const geos: Record<string, (q: BuildQuality) => THREE.BufferGeometry> = this.brickStyle ? {
+      walker: (bq) => minifigZombie(bq, 0),
+      runner: (bq) => minifigRunner(bq, 0),
+      screamer: (bq) => minifigMonster('screamer', bq),
+      brute: (bq) => minifigMonster('brute', bq),
+      titan: (bq) => minifigMonster('titan', bq),
+      midboss: (bq) => minifigMonster('midboss', bq),
+      boss: minifigBoss,
+      spitter: (bq) => minifigMonster('spitter', bq),
+      leaper: (bq) => minifigMonster('leaper', bq),
+      armored: (bq) => minifigMonster('armored', bq),
+      swarmling: (bq) => minifigMonster('swarmling', bq),
+      bomber: (bq) => minifigMonster('bomber', bq),
+    } : {
       walker: zombieGeometry,
       runner: runnerGeometry,
       screamer: screamerGeometry,
@@ -323,8 +347,12 @@ export class GameView {
       bomber: bomberGeometry,
     };
     // 尸群/疾行者换成多套体型：0 号沿用原来的键，其余挂在 `kind#n` 上
-    for (let v = 1; v < ZOMBIE_VARIANTS; v++) geos[`walker#${v}`] = (bq) => zombieVariantGeometry(bq, v);
-    for (let v = 1; v < RUNNER_VARIANTS; v++) geos[`runner#${v}`] = (bq) => runnerVariantGeometry(bq, v);
+    for (let v = 1; v < ZOMBIE_VARIANTS; v++) {
+      geos[`walker#${v}`] = this.brickStyle ? (bq) => minifigZombie(bq, v) : (bq) => zombieVariantGeometry(bq, v);
+    }
+    for (let v = 1; v < RUNNER_VARIANTS; v++) {
+      geos[`runner#${v}`] = this.brickStyle ? (bq) => minifigRunner(bq, v) : (bq) => runnerVariantGeometry(bq, v);
+    }
 
     const crowdShadows = this.r.quality.crowdShadows && this.r.quality.shadowMap > 0;
     for (const key of Object.keys(geos)) {
@@ -337,7 +365,14 @@ export class GameView {
       // 大片凸起区域把整个身体洗成一片暖橙——盖过了调色板本身的对比，"发光裂纹"
       // 也会被这片底噪淹没。这里把磨损/脏污都摁进深色，只留 crackGlow 的
       // emissive 脉动作为唯一的亮色来源。
-      const set = kind === 'boss'
+      // 积木关：所有角色都是同一批注塑件，用同一套塑料材质。
+      // Boss/泰坦那几套熔纹磨损材质是给写实的炭黑甲壳调的，套在小人仔上
+      // 会把平涂的塑料色洗成一片脏灰。
+      const set = this.brickStyle
+        ? createCrowdMaterial({
+            roughness: 0.34, metalness: 0.02, wear: 0, grunge: 0, scratch: 0, detail: 0, ao: 0.55,
+          })
+        : kind === 'boss'
         ? createCrowdMaterial({
             emissive: 0x180502, roughness: 0.62, metalness: 0.12,
             wearColor: 0x241008, wear: 0.14, grungeColor: 0x0a0503, grunge: 0.22, ao: 0.75,
@@ -380,14 +415,18 @@ export class GameView {
    * 一样整批重建，只是这次只重建士兵这一个批次。
    */
   private buildSoldierBatch(q: BuildQuality): void {
-    const soldierGeo = soldierGeometry(q, this.soldierWeaponTier);
+    const soldierGeo = this.brickStyle
+      ? minifigSoldier(q, this.soldierWeaponTier)
+      : soldierGeometry(q, this.soldierWeaponTier);
     // 士兵单独给一点冷色自发光：五关的雾从暖褐到暗紫都有，纯反射光的话
     // 队伍在远处会被雾洗成和路面一个颜色。这一点点底光不影响近处观感，
     // 但保证了"我的人在哪"这件事在任何一关都读得出来。
-    const soldierMat = createCrowdMaterial({
-      roughness: 0.7, metalness: 0.12, soldierPose: true,
-      emissive: 0x0c1c2c,
-    });
+    const soldierMat = this.brickStyle
+      ? createCrowdMaterial({ roughness: 0.32, metalness: 0.02, soldierPose: true, wear: 0, grunge: 0, scratch: 0, detail: 0, ao: 0.55 })
+      : createCrowdMaterial({
+        roughness: 0.7, metalness: 0.12, soldierPose: true,
+        emissive: 0x0c1c2c,
+      });
     soldierMat.setPivots(geometryPivots(soldierGeo));
     this.soldierMatSet = soldierMat;
     this.soldiers = new CrowdBatch(soldierGeo, soldierMat.material, MAX_RENDERED_SOLDIERS, soldierMat.depthMaterial);
@@ -413,7 +452,7 @@ export class GameView {
       lengthDetail: this.r.quality.lengthDetail,
       accessory: this.r.quality.accessory,
     };
-    const geo = bossGeometry(q, kind);
+    const geo = this.brickStyle ? minifigBoss(q) : bossGeometry(q, kind);
     const set = createCrowdMaterial({
       emissive: 0x180502, roughness: 0.62, metalness: 0.12,
       wearColor: 0x241008, wear: 0.14, grungeColor: 0x0a0503, grunge: 0.22, ao: 0.75,
@@ -490,14 +529,7 @@ export class GameView {
    * 而角色面数原封不动。
    */
   rebuild(): void {
-    for (const b of this.batches.values()) {
-      this.scene.remove(b.mesh);
-      b.dispose();
-    }
-    this.batches.clear();
-    this.matSets.length = 0;
-    this.scene.remove(this.soldiers.mesh);
-    this.soldiers.dispose();
+    this.disposeCharacters();
     this.scene.remove(this.cannons, this.shells, this.pickupMesh);
     this.cannons.geometry.dispose();
     (this.cannons.material as THREE.Material).dispose();
@@ -509,14 +541,33 @@ export class GameView {
     this.buildProps();
   }
 
+  /** 拆掉所有角色批次（换画质档、或者切到画风不同的关卡时）。 */
+  private disposeCharacters(): void {
+    for (const b of this.batches.values()) {
+      this.scene.remove(b.mesh);
+      b.dispose();
+    }
+    this.batches.clear();
+    this.matSets.length = 0;
+    this.scene.remove(this.soldiers.mesh);
+    this.soldiers.dispose();
+  }
+
   /** 为一关搭出静态场景。切关时调用。 */
   buildLevel(world: World): void {
     this.disposeLevel();
     const root = new THREE.Group();
+    // 第一关是积木关：环境和角色整套换一条路，别的关照旧。
+    // 画风切换必须排在 rebuildBoss 前面——否则 Boss 批次会先按旧画风建一遍，
+    // 再被 buildCharacters 整个覆盖掉，白建一次几万面的模型。
+    const brickLevel = world.level.id === BRICK_LEVEL;
+    if (brickLevel !== this.brickStyle) {
+      this.brickStyle = brickLevel;
+      this.disposeCharacters();
+      this.buildCharacters();
+    }
     const bossBeat = world.level.beats.find((b) => b.t === 'boss');
     if (bossBeat && bossBeat.t === 'boss') this.rebuildBoss(bossBeat.kind);
-    // 第一关是积木关：整套环境换一条路，别的关照旧。
-    const brickLevel = world.level.id === BRICK_LEVEL;
     const theme: SkyTheme = brickLevel ? BRICK_SKY : skyForLevel(world.level.id);
     const flavour = LEVEL_FLAVOUR[Math.max(0, Math.min(LEVEL_FLAVOUR.length - 1, world.level.id - 1))]!;
     const q = this.r.quality;
